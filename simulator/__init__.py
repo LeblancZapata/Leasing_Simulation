@@ -70,6 +70,8 @@ from simulator.lease import (
     calculate_lease_payment_first,
     calculate_dynamic_recommended_lease_price,
     lease_schedule_to_dataframe,
+    ClientLeaseOption,
+    generate_client_lease_options,
 )
 
 from simulator.exploitation import (
@@ -131,6 +133,18 @@ from simulator.scenarios import (
     run_preset_comparison,
 )
 
+from simulator.analyst import (
+    PortfolioPlan,
+    evaluate_single_plan,
+    run_business_analyst_optimizer,
+    generate_analyst_insights,
+)
+
+from simulator.i18n import (
+    t,
+    TRANSLATIONS,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -184,6 +198,8 @@ __all__ = [
     "calculate_lease_payment_first",
     "calculate_dynamic_recommended_lease_price",
     "lease_schedule_to_dataframe",
+    "ClientLeaseOption",
+    "generate_client_lease_options",
     "EXPLOITATION_PROFIT_PRESETS",
     "ExploitationScheduleRow",
     "ExploitationEvaluationResult",
@@ -222,4 +238,6 @@ __all__ = [
     "DEFAULT_SCENARIO_TERMS",
     "run_scenario_matrix",
     "run_preset_comparison",
+    "t",
+    "TRANSLATIONS",
 ]

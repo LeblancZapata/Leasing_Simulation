@@ -1,0 +1,51 @@
+# Streamlit Configuration for Dump Truck Finance & Leasing Simulator
+
+[theme]
+base = "light"
+primaryColor = "#2563EB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8FAFC"
+textColor = "#0F172A"
+borderColor = "#E2E8F0"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "8px"
+buttonRadius = "8px"
+font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseFontSize = 14
+baseFontWeight = 400
+
+# Semantic colors for financial KPIs
+greenColor = "#16A34A"
+redColor = "#DC2626"
+yellowColor = "#D97706"
+blueColor = "#2563EB"
+grayColor = "#64748B"
+
+# Distinguishable Chart Colors
+chartCategoricalColors = [
+    "#2563EB",
+    "#16A34A",
+    "#D97706",
+    "#DC2626",
+    "#7C3AED",
+    "#0891B2",
+    "#4F46E5",
+]
+
+dataframeBorderColor = "#E2E8F0"
+dataframeHeaderBackgroundColor = "#F1F5F9"
+dataframeHeaderTextColor = "#0F172A"
+
+[theme.sidebar]
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#F1F5F9"
+textColor = "#0F172A"
+borderColor = "#E2E8F0"
+primaryColor = "#2563EB"
+
+[server]
+headless = true
+enableCORS = false
+

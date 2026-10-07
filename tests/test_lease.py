@@ -215,3 +215,46 @@ def test_lease_schedule_dataframe():
     df = lease_schedule_to_dataframe(res)
     assert len(df) == 6
     assert list(df.columns) == ["Month", "Opening Receivable", "Installment", "Closing Receivable", "Cumulative Recovered", "Net Cash Flow"]
+
+
+def test_generate_client_lease_options_30m_deposit():
+    """Verify that a large deposit of 30M only offers short terms (6m, 12m) and excludes 18m/24m."""
+    from simulator.lease import generate_client_lease_options
+
+    options = generate_client_lease_options(truck_cost=40_000_000.0, initial_deposit=30_000_000.0)
+    assert len(options) == 4
+
+    opt_by_term = {opt.term_months: opt for opt in options}
+
+    # 6 months and 12 months are offered
+    assert opt_by_term[6].is_offered is True
+    assert opt_by_term[12].is_offered is True
+
+    # 18 months and 24 months are NOT offered
+    assert opt_by_term[18].is_offered is False
+    assert opt_by_term[24].is_offered is False
+    assert "Non proposé" in opt_by_term[18].rejection_reason
+    assert "Non proposé" in opt_by_term[24].rejection_reason
+
+
+def test_generate_client_lease_options_12m_deposit():
+    """Verify that a standard 12M deposit offers 12m, 18m, and 24m (recommending 24m)."""
+    from simulator.lease import generate_client_lease_options
+
+    options = generate_client_lease_options(truck_cost=40_000_000.0, initial_deposit=12_000_000.0)
+    opt_by_term = {opt.term_months: opt for opt in options}
+
+    assert opt_by_term[12].is_offered is True
+    assert opt_by_term[18].is_offered is True
+    assert opt_by_term[24].is_offered is True
+    assert opt_by_term[24].is_recommended is True
+
+
+def test_generate_client_lease_options_under_10m():
+    """Verify that deposits under 10M are flagged with minimum deposit requirement."""
+    from simulator.lease import generate_client_lease_options
+
+    options = generate_client_lease_options(truck_cost=40_000_000.0, initial_deposit=8_000_000.0)
+    for opt in options:
+        assert opt.is_offered is False
+        assert "10 000 000 FCFA" in opt.rejection_reason

@@ -70,6 +70,48 @@ class SimulationResult:
     summary_metrics: Dict[str, Any]
 
 
+def distribute_truck_strategies(
+    count: int,
+    allocation: Optional[Dict[StrategyType, float]],
+    default_strategy: StrategyType = StrategyType.LEASING,
+) -> List[StrategyType]:
+    """Distribute a discrete batch of trucks across strategies deterministically.
+    Uses the largest remainder method (Hamilton method) to assign exact integer counts.
+    """
+    if count <= 0:
+        return []
+    if not allocation:
+        return [default_strategy] * count
+
+    valid_alloc = {k: max(0.0, float(v)) for k, v in allocation.items() if max(0.0, float(v)) > 0}
+    total_weight = sum(valid_alloc.values())
+    if total_weight <= 0:
+        return [default_strategy] * count
+
+    sorted_strats = sorted(valid_alloc.keys(), key=lambda s: s.value)
+    quotas = [(s, (valid_alloc[s] / total_weight) * count) for s in sorted_strats]
+    integer_parts = {s: int(math.floor(q)) for s, q in quotas}
+    allocated_count = sum(integer_parts.values())
+    remainders = [(s, q - integer_parts[s]) for s, q in quotas]
+    remainders.sort(key=lambda item: (-item[1], item[0].value))
+
+    slots_needed = count - allocated_count
+    for i in range(slots_needed):
+        strategy = remainders[i % len(remainders)][0]
+        integer_parts[strategy] += 1
+
+    result: List[StrategyType] = []
+    for s in sorted_strats:
+        result.extend([s] * integer_parts[s])
+
+    if len(result) < count:
+        result.extend([default_strategy] * (count - len(result)))
+    elif len(result) > count:
+        result = result[:count]
+
+    return result
+
+
 def run_portfolio_simulation(config: SimulationConfig) -> SimulationResult:
     """Execute monthly discrete event portfolio simulation deterministically (Section 11).
     
@@ -121,8 +163,12 @@ def run_portfolio_simulation(config: SimulationConfig) -> SimulationResult:
 
     # Instantiate Initial Batch Trucks
     initial_deposit_cash = 0.0
-    for _ in range(initial_truck_count):
-        strat = config.primary_strategy
+    initial_strats = distribute_truck_strategies(
+        initial_truck_count,
+        config.strategy_allocation,
+        config.primary_strategy,
+    )
+    for strat in initial_strats:
         if strat == StrategyType.LEASING:
             # Lease term and deposit
             term = config.lease.term_months
@@ -270,8 +316,12 @@ def run_portfolio_simulation(config: SimulationConfig) -> SimulationResult:
             reinvestment_batch_count += 1
 
             # Instantiate newly acquired trucks
-            for _ in range(reinvest_trucks):
-                strat = config.primary_strategy
+            reinvest_strats = distribute_truck_strategies(
+                reinvest_trucks,
+                config.strategy_allocation,
+                config.primary_strategy,
+            )
+            for strat in reinvest_strats:
                 if strat == StrategyType.LEASING:
                     term = config.lease.term_months
                     dep = config.lease.initial_deposit

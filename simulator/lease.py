@@ -292,3 +292,138 @@ def lease_schedule_to_dataframe(result: LeaseEvaluationResult) -> pd.DataFrame:
         for row in result.rows
     ]
     return pd.DataFrame(data)
+
+
+@dataclass
+class ClientLeaseOption:
+    """A structured lease option presented to a client for a specific term."""
+    term_months: int
+    is_offered: bool
+    rejection_reason: Optional[str]
+    initial_deposit: float
+    financed_balance: float
+    total_contract_price: float
+    monthly_installment: float
+    company_net_profit: float
+    profit_margin: float
+    payback_month: int
+    is_recommended: bool
+    evaluation: Optional[LeaseEvaluationResult] = None
+
+
+def generate_client_lease_options(
+    truck_cost: float,
+    initial_deposit: float,
+    upfront_protection_costs: float = 0.0,
+    monthly_costs: float = 0.0,
+    target_annual_return: float = 0.25,
+    discount_rate: float = 0.20,
+) -> List[ClientLeaseOption]:
+    """Generate tailored leasing possibilities for a client based on their down payment.
+    
+    Core Business Rules:
+    - Duration cannot exceed 2 years (max 24 months). Options are 6, 12, 18, 24 months.
+    - Initial deposit must be >= 10M FCFA.
+    - If a client provides a large down payment (e.g. 30M FCFA), 18-month and 24-month options
+      are NOT offered because stretching a small remaining balance over 2 years is commercially irrational.
+    - If deposit is medium-high (22M-27M FCFA), 24-month option is NOT offered.
+    - If deposit is standard (10M-15M FCFA), 24-month and 18-month options are recommended to keep monthly payments realistic.
+    """
+    options: List[ClientLeaseOption] = []
+    terms = [6, 12, 18, 24]
+
+    if initial_deposit < MINIMUM_LEASE_DEPOSIT:
+        for t_mo in terms:
+            options.append(
+                ClientLeaseOption(
+                    term_months=t_mo,
+                    is_offered=False,
+                    rejection_reason=f"Acompte insuffisant ({initial_deposit:,.0f} FCFA). L'apport minimum légal requis est de 10 000 000 FCFA.",
+                    initial_deposit=initial_deposit,
+                    financed_balance=0.0,
+                    total_contract_price=0.0,
+                    monthly_installment=0.0,
+                    company_net_profit=0.0,
+                    profit_margin=0.0,
+                    payback_month=0,
+                    is_recommended=False,
+                )
+            )
+        return options
+
+    for t_mo in terms:
+        # Calculate dynamic contract price to yield target return
+        rec_price = calculate_dynamic_recommended_lease_price(
+            truck_cost=truck_cost,
+            initial_deposit=initial_deposit,
+            term_months=t_mo,
+            target_annual_return=target_annual_return,
+            upfront_protection_costs=upfront_protection_costs,
+            monthly_costs=monthly_costs,
+        )
+
+        eval_res = calculate_lease_price_first(
+            total_contract_price=rec_price,
+            initial_deposit=initial_deposit,
+            term_months=t_mo,
+            truck_cost=truck_cost,
+            upfront_protection_costs=upfront_protection_costs,
+            monthly_costs=monthly_costs,
+            discount_rate=discount_rate,
+        )
+
+        # Payback calculation: when cumulative cash >= truck cost + upfront
+        total_investment = truck_cost + upfront_protection_costs
+        payback_m = t_mo
+        cum_cash = initial_deposit
+        for row in eval_res.rows:
+            cum_cash += row.installment
+            if cum_cash >= total_investment:
+                payback_m = row.month
+                break
+
+        # Eligibility logic based on initial deposit
+        is_offered = True
+        rejection_reason = None
+        is_rec = False
+
+        if initial_deposit >= 28_000_000.0:
+            if t_mo in (18, 24):
+                is_offered = False
+                rejection_reason = f"Non proposé : avec un apport de {initial_deposit/1e6:.0f}M FCFA, le solde restant est faible. Une durée de {t_mo} mois immobiliserait inutilement le véhicule."
+            elif t_mo == 6:
+                is_rec = True
+            elif t_mo == 12:
+                is_rec = False
+        elif initial_deposit >= 22_000_000.0:
+            if t_mo == 24:
+                is_offered = False
+                rejection_reason = f"Non proposé : avec un apport de {initial_deposit/1e6:.0f}M FCFA, la durée maximale conseillée est de 18 mois."
+            elif t_mo == 12:
+                is_rec = True
+        else:  # 10M - 21M deposit
+            if t_mo == 6 and eval_res.monthly_installment > 5_000_000.0:
+                is_rec = False
+            elif t_mo == 24 and initial_deposit <= 15_000_000.0:
+                is_rec = True
+            elif t_mo == 18 and initial_deposit > 15_000_000.0:
+                is_rec = True
+
+        options.append(
+            ClientLeaseOption(
+                term_months=t_mo,
+                is_offered=is_offered,
+                rejection_reason=rejection_reason,
+                initial_deposit=initial_deposit,
+                financed_balance=eval_res.financed_balance,
+                total_contract_price=eval_res.total_contract_price,
+                monthly_installment=eval_res.monthly_installment,
+                company_net_profit=eval_res.net_profit,
+                profit_margin=eval_res.net_profit / eval_res.total_contract_price if eval_res.total_contract_price > 0 else 0.0,
+                payback_month=payback_m,
+                is_recommended=is_rec,
+                evaluation=eval_res,
+            )
+        )
+
+    return options
