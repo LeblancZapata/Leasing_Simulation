@@ -289,3 +289,34 @@ def test_generate_client_lease_options_under_10m():
     for opt in options:
         assert opt.is_offered is False
         assert "10 000 000 FCFA" in opt.rejection_reason
+
+
+def test_optimal_commercial_lease_target_65m():
+    """Verify the business target: 10M deposit on 46M cash price for 24 months yields exactly 65,000,000 FCFA."""
+    from simulator.lease import generate_client_lease_options, calculate_dynamic_recommended_lease_price
+
+    truck_cost = 40_000_000.0
+    base_cash_price = 46_000_000.0
+    initial_deposit = 10_000_000.0
+    term_months = 24
+
+    total_price = calculate_dynamic_recommended_lease_price(
+        truck_cost=truck_cost,
+        initial_deposit=initial_deposit,
+        term_months=term_months,
+        base_cash_price=base_cash_price,
+    )
+    assert total_price == 65_000_000.0
+
+    options = generate_client_lease_options(
+        truck_cost=truck_cost,
+        initial_deposit=initial_deposit,
+        base_cash_price=base_cash_price,
+    )
+    opt_24 = next(o for o in options if o.term_months == 24)
+    assert opt_24.total_contract_price == 65_000_000.0
+    assert opt_24.financed_balance == 36_000_000.0
+    assert opt_24.total_interest_paid == 19_000_000.0
+    assert opt_24.total_installments == 55_000_000.0
+    assert round(opt_24.monthly_installment * 24, 2) == 55_000_000.0
+    assert opt_24.company_net_profit == 25_000_000.0

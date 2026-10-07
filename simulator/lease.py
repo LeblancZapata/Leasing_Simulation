@@ -18,6 +18,8 @@ from simulator.models import LeaseAssumptions
 
 ALLOWED_LEASE_TERMS: Tuple[int, ...] = (6, 12, 18, 24)
 MINIMUM_LEASE_DEPOSIT: float = 10_000_000.0
+# Calibrated optimal commercial leasing rate: 19M interest on 36M financed over 2 years (24 months) = 19 / (36 * 2) = 19 / 72 ≈ 26.388889% / an
+OPTIMAL_ANNUAL_LEASING_RATE: float = 19.0 / 72.0
 
 
 @dataclass
@@ -144,10 +146,10 @@ def _build_lease_schedule(
         )
         current_receivable = closing_rec
 
-    total_contractual_receipts = initial_deposit + sum(r.installment for r in rows)
-    total_recurring_costs = monthly_costs * float(term_months)
-    total_costs = truck_cost + upfront_protection_costs + total_recurring_costs
-    net_profit = total_contractual_receipts - total_costs
+    total_contractual_receipts = round(initial_deposit + sum(r.installment for r in rows), 2)
+    total_recurring_costs = round(monthly_costs * float(term_months), 2)
+    total_costs = round(truck_cost + upfront_protection_costs + total_recurring_costs, 2)
+    net_profit = round(total_contractual_receipts - total_costs, 2)
 
     # Break-even calculations
     break_even_contract_price = total_costs
@@ -256,7 +258,7 @@ def calculate_dynamic_recommended_lease_price(
     initial_deposit: float,
     term_months: int,
     base_cash_price: Optional[float] = None,
-    target_annual_return: float = 0.15,
+    target_annual_return: float = OPTIMAL_ANNUAL_LEASING_RATE,
     commercial_markup: float = 0.15,
     upfront_protection_costs: float = 0.0,
     monthly_costs: float = 0.0,
@@ -266,6 +268,8 @@ def calculate_dynamic_recommended_lease_price(
     2. Interest charged is dynamic: client with smaller deposit pays more interest than client
        with larger deposit, because they hold more of the company's capital.
     3. Longer timelines accumulate more financing interest than shorter timelines.
+    4. Calibrated to optimal commercial rate (19/72 ≈ 26.39%/yr) yielding exactly 65,000,000 FCFA
+       for a 10M deposit over 24 months on a 46M cash asset.
     """
     validate_positive_number("Truck cost", truck_cost, allow_zero=False)
     validate_lease_deposit(initial_deposit, min_deposit=MINIMUM_LEASE_DEPOSIT)
@@ -278,21 +282,16 @@ def calculate_dynamic_recommended_lease_price(
     else:
         base_price = (truck_cost * (1.0 + commercial_markup)) + upfront_protection_costs
 
-    # Remaining principal of company money financed for the client
+    # Remaining principal of company capital financed for the client
     financed_balance = max(0.0, base_price - initial_deposit)
 
     if financed_balance <= 0.0:
         return max(base_price, initial_deposit) + (monthly_costs * float(term_months))
 
-    # Amortization monthly rate
-    r_monthly = target_annual_return / 12.0
-    if r_monthly > 0 and term_months > 0:
-        factor = math.pow(1.0 + r_monthly, term_months)
-        installment_principal_interest = financed_balance * (r_monthly * factor) / (factor - 1.0)
-    else:
-        installment_principal_interest = financed_balance / float(term_months)
+    # Flat commercial leasing interest: financed_balance * target_annual_return * (term_months / 12)
+    total_interest = financed_balance * target_annual_return * (float(term_months) / 12.0)
 
-    total_contract_price = initial_deposit + (installment_principal_interest + monthly_costs) * float(term_months)
+    total_contract_price = base_price + total_interest + (monthly_costs * float(term_months))
     return round(total_contract_price, 2)
 
 
@@ -328,6 +327,7 @@ class ClientLeaseOption:
     is_recommended: bool
     base_cash_price: float = 0.0
     total_interest_paid: float = 0.0
+    total_installments: float = 0.0
     evaluation: Optional[LeaseEvaluationResult] = None
 
 
@@ -337,9 +337,9 @@ def generate_client_lease_options(
     base_cash_price: Optional[float] = None,
     upfront_protection_costs: float = 0.0,
     monthly_costs: float = 0.0,
-    target_annual_return: float = 0.15,
+    target_annual_return: float = OPTIMAL_ANNUAL_LEASING_RATE,
     commercial_markup: float = 0.15,
-    discount_rate: float = 0.15,
+    discount_rate: float = OPTIMAL_ANNUAL_LEASING_RATE,
 ) -> List[ClientLeaseOption]:
     """Generate tailored leasing possibilities for a client based on their down payment.
     
@@ -350,6 +350,7 @@ def generate_client_lease_options(
     - Client with 10M deposit pays MORE interest than client with 30M deposit.
     - Company net margin is higher for smaller deposits due to greater financing interest.
     - If deposit is >= 28M FCFA, 18-month and 24-month options are NOT offered.
+    - Target benchmark: 10M deposit on 46M base asset for 24 months yields exactly 65M total.
     """
     options: List[ClientLeaseOption] = []
     terms = [6, 12, 18, 24]
@@ -376,9 +377,12 @@ def generate_client_lease_options(
                     is_recommended=False,
                     base_cash_price=actual_base_price,
                     total_interest_paid=0.0,
+                    total_installments=0.0,
                 )
             )
         return options
+
+    actual_financed_balance = max(0.0, actual_base_price - initial_deposit)
 
     for t_mo in terms:
         rec_price = calculate_dynamic_recommended_lease_price(
@@ -403,6 +407,7 @@ def generate_client_lease_options(
         )
 
         total_interest = max(0.0, eval_res.total_contract_price - actual_base_price - (monthly_costs * float(t_mo)))
+        total_installments = max(0.0, eval_res.total_contract_price - initial_deposit)
 
         # Payback calculation: when cumulative cash >= truck cost + upfront
         total_investment = truck_cost + upfront_protection_costs
@@ -447,7 +452,7 @@ def generate_client_lease_options(
                 is_offered=is_offered,
                 rejection_reason=rejection_reason,
                 initial_deposit=initial_deposit,
-                financed_balance=eval_res.financed_balance,
+                financed_balance=actual_financed_balance,
                 total_contract_price=eval_res.total_contract_price,
                 monthly_installment=eval_res.monthly_installment,
                 company_net_profit=eval_res.net_profit,
@@ -456,6 +461,7 @@ def generate_client_lease_options(
                 is_recommended=is_rec,
                 base_cash_price=actual_base_price,
                 total_interest_paid=total_interest,
+                total_installments=total_installments,
                 evaluation=eval_res,
             )
         )

@@ -501,12 +501,12 @@ with tab_leasing:
     l_in_c1, l_in_c2 = st.columns([2, 3])
     with l_in_c1:
         with st.container(border=True):
-            st.markdown("#### Apport Proposé par le Client" if lang == "fr" else "#### Client Down Payment")
+            st.markdown("#### Apport & Taux Commercial" if lang == "fr" else "#### Down Payment & Rate")
             client_deposit_in = st.number_input(
                 "Apport initial versé par le client (FCFA) :" if lang == "fr" else "Initial deposit provided by client (FCFA):",
                 min_value=10_000_000.0,
                 max_value=80_000_000.0,
-                value=12_000_000.0,
+                value=10_000_000.0,
                 step=1_000_000.0,
                 format="%.0f",
                 help="Statutairement, l'apport initial ne peut pas être inférieur à 10 000 000 FCFA.",
@@ -516,7 +516,7 @@ with tab_leasing:
             quick_chips = st.segmented_control(
                 "Montants typiques",
                 options=["10M FCFA", "12M FCFA", "15M FCFA", "20M FCFA", "25M FCFA", "30M FCFA"],
-                default="12M FCFA" if client_deposit_in == 12_000_000.0 else None,
+                default="10M FCFA" if client_deposit_in == 10_000_000.0 else None,
                 label_visibility="collapsed",
             )
             if quick_chips:
@@ -524,9 +524,21 @@ with tab_leasing:
                 if val_num != client_deposit_in:
                     client_deposit_in = val_num
 
+            commercial_lease_rate_pct = st.number_input(
+                "Taux d'intérêt commercial crédit-bail (% / an) :" if lang == "fr" else "Commercial Leasing Annual Rate (% / yr):",
+                min_value=10.0,
+                max_value=60.0,
+                value=26.39,
+                step=0.1,
+                format="%.2f",
+                help="Taux annuel appliqué sur le capital restant dû du camion (prix comptant - acompte). Calibré à 26.39%/an pour atteindre exactement 65 000 000 FCFA de contrat total (25M de bénéfice net) pour 10M d'acompte sur 24 mois."
+                if lang == "fr"
+                else "Annual commercial rate applied to financed balance. Calibrated to 26.39%/yr to yield exactly 65M total contract (25M net profit) for 10M deposit over 24 months.",
+            )
+
     with l_in_c2:
         with st.container(border=True):
-            st.markdown("#### Règle de Décision Commerciale" if lang == "fr" else "#### Commercial Decision Rule")
+            st.markdown("#### Règle de Décision & Rentabilité Optimale" if lang == "fr" else "#### Commercial Decision Rule & Profitability")
             if client_deposit_in >= 28_000_000.0:
                 st.warning(
                     f"💡 **Apport Élevé ({format_fcfa(client_deposit_in)}) :** Le client a déjà payé la majorité du camion. "
@@ -546,32 +558,42 @@ with tab_leasing:
                 )
             else:
                 st.info(
-                    f"💡 **Apport Standard ({format_fcfa(client_deposit_in)}) :** Le client apporte environ 25% à 30% du véhicule. "
-                    "Pour que la mensualité reste supportable avec les revenus de ses chantiers, les durées recommandées sont **18 mois ou 24 mois**."
+                    f"💡 **Apport Standard ({format_fcfa(client_deposit_in)}) :** "
+                    "Le client finance une part substantielle du camion. "
+                    "**Objectif de rentabilité validé :** pour 10M d'acompte sur 24 mois, le prix total est de **65 000 000 FCFA** "
+                    "(soit **25 000 000 FCFA de bénéfice net** pour l'entreprise par rapport au coût de revient de 40M)."
                     if lang == "fr"
-                    else f"💡 **Standard Deposit ({format_fcfa(client_deposit_in)}):** Recommended terms are 18 or 24 months to keep monthly payments affordable."
+                    else f"💡 **Standard Deposit ({format_fcfa(client_deposit_in)}):** "
+                    "Validated profit benchmark: for 10M deposit over 24 months, total contract price is **65,000,000 FCFA** "
+                    "(**25,000,000 FCFA net company profit** on a 40M unit landed cost)."
                 )
+
+            st.caption(
+                f"📊 **Paramètres clés :** Prix comptant : **{format_fcfa(market_sale_price)}** | "
+                f"Coût de revient : **{format_fcfa(truck_landed_cost)}** | "
+                f"Taux bancaire emprunt : **{annual_rate_pct:.1f}%/an** | "
+                f"Taux commercial crédit-bail : **{commercial_lease_rate_pct:.2f}%/an**"
+            )
 
     # Reference local market price
     base_cash_price_ref = market_sale_price
 
     # Educational banner explaining dynamic pricing logic
     st.info(
-        f"💡 **Règle Fondamentale de Tarification Dynamique :**\n"
-        f"• **Prix de Vente Comptant du Marché Local (Normal) :** **{format_fcfa(base_cash_price_ref)}**.\n"
-        f"• **Taux Bancaire de Financement :** **{annual_rate_pct:.1f}% / an** ({annual_rate_pct/12.0:.2f}% par mois).\n"
-        f"• Tout client qui achète en crédit-bail retient du capital de l'entreprise et paie **obligatoirement plus cher** que le prix comptant de 46 000 000 FCFA.\n"
-        f"• **Acompte & Intérêts :** Moins le client donne d'acompte (ex: 10M vs 30M), plus il retient du capital et plus il paie d'intérêts financiers.\n"
-        f"• **Durée & Intérêts :** Plus la durée s'allonge (6 à 24 mois), plus les intérêts cumulés rémunèrent le temps d'immobilisation des fonds.\n"
-        f"• **Plafond 2 Ans :** Durée maximale de 24 mois (avec rejet des durées ≥ 18 mois pour les acomptes élevés ≥ 28M)."
+        f"💡 **Règle Fondamentale de Tarification Dynamique & Décomposition Financière :**\n"
+        f"• **Valeur Comptant Normale du Camion :** **{format_fcfa(base_cash_price_ref)}**.\n"
+        f"• **Capital Camion Financé :** Valeur Comptant ({format_fcfa(base_cash_price_ref)}) − Acompte Versé ({format_fcfa(client_deposit_in)}) = **{format_fcfa(max(0.0, base_cash_price_ref - client_deposit_in))}**.\n"
+        f"• **Intérêts Crédit-Bail :** Calculés sur le capital immobilisé à **{commercial_lease_rate_pct:.2f}% / an**.\n"
+        f"• **Dynamique Client :** Moins le client donne d'acompte (10M vs 30M), plus il retient du capital et plus il paie d'intérêts financiers.\n"
+        f"• **Dynamique Durée :** Plus la durée s'allonge (6 à 24 mois), plus les intérêts cumulés rémunèrent l'immobilisation des fonds.\n"
+        f"• **Cible Validée :** Pour 10M d'acompte sur 24 mois $\\rightarrow$ Intérêts = 19M FCFA $\\rightarrow$ **Prix Total = 65 000 000 FCFA** (Bénéfice Net Entreprise = **25 000 000 FCFA**)."
         if lang == "fr"
-        else f"💡 **Core Dynamic Pricing Rule:**\n"
-        f"• **Local Market Cash Benchmark:** **{format_fcfa(base_cash_price_ref)}**.\n"
-        f"• **Bank Financing Rate:** **{annual_rate_pct:.1f}% / yr** ({annual_rate_pct/12.0:.2f}% per month).\n"
-        f"• Anyone buying on lease ties up company capital and strictly pays more than 46,000,000 FCFA.\n"
-        f"• **Deposit & Interest:** A smaller deposit (10M vs 30M) holds more company money and incurs higher financing interest.\n"
-        f"• **Term & Interest:** Longer durations accumulate higher total interest.\n"
-        f"• **2-Year Ceiling:** Maximum term strictly capped at 24 months (with 18m/24m excluded for deposits ≥ 28M)."
+        else f"💡 **Dynamic Pricing Rule & Financial Breakdown:**\n"
+        f"• **Normal Cash Asset Value:** **{format_fcfa(base_cash_price_ref)}**.\n"
+        f"• **Financed Principal:** Cash Value ({format_fcfa(base_cash_price_ref)}) − Upfront Deposit ({format_fcfa(client_deposit_in)}) = **{format_fcfa(max(0.0, base_cash_price_ref - client_deposit_in))}**.\n"
+        f"• **Leasing Interest:** Calculated on tied-up principal at **{commercial_lease_rate_pct:.2f}% / yr**.\n"
+        f"• **Client Dynamics:** Lower deposit incurs more interest. Longer duration yields more interest.\n"
+        f"• **Validated Target:** 10M deposit over 24 months $\\rightarrow$ +19M interest $\\rightarrow$ **Total = 65,000,000 FCFA** (**25,000,000 FCFA Net Profit**)."
     )
 
     # Generate Client Lease Options
@@ -581,7 +603,7 @@ with tab_leasing:
         base_cash_price=base_cash_price_ref,
         upfront_protection_costs=0.0,
         monthly_costs=0.0,
-        target_annual_return=financing_assumptions.annual_financing_rate,
+        target_annual_return=commercial_lease_rate_pct / 100.0,
         commercial_markup=sale_markup_pct / 100.0,
         discount_rate=financing_assumptions.annual_financing_rate,
     )
@@ -608,20 +630,22 @@ with tab_leasing:
 
                 if opt.is_offered:
                     st.metric(
-                        "Mensualité Client" if lang == "fr" else "Monthly Payment",
+                        "Traite Mensuelle" if lang == "fr" else "Monthly Payment",
                         format_fcfa(opt.monthly_installment),
-                        f"pendant {opt.term_months} mois",
+                        f"pendant {opt.term_months} mois" if lang == "fr" else f"for {opt.term_months} months",
                     )
+                    st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
                     st.write(f"• **Acompte le 1er jour :** {format_fcfa(opt.initial_deposit)}")
-                    st.write(f"• **Reliquat financé :** {format_fcfa(opt.financed_balance)}")
-                    st.write(f"• **Intérêts financiers :** **+{format_fcfa(opt.total_interest_paid)}**")
-                    st.write(f"• **Prix total client :** **{format_fcfa(opt.total_contract_price)}**")
-                    st.markdown("---")
+                    st.write(f"• **Capital camion financé :** {format_fcfa(opt.financed_balance)}")
+                    st.write(f"• **Intérêts crédit-bail :** **+{format_fcfa(opt.total_interest_paid)}**")
+                    st.write(f"• **Total mensualités :** {format_fcfa(opt.total_installments)}")
+                    st.write(f"• **Prix total contrat :** **{format_fcfa(opt.total_contract_price)}**")
+                    st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
                     st.write(f"💰 **Bénéfice Net Entreprise :** **{format_fcfa(opt.company_net_profit)}**")
-                    st.caption(f"(Marge commerciale + Intérêts crédit)")
-                    st.write(f"⏳ **Camion rentabilisé en :** **{opt.payback_month} mois**")
+                    st.caption(f"Gain net par camion (achat à {format_fcfa(truck_landed_cost)})" if lang == "fr" else f"Net gain / truck (cost {format_fcfa(truck_landed_cost)})")
+                    st.write(f"⏳ **Remboursement camion :** **{opt.payback_month} mois**" if lang == "fr" else f"⏳ **Payback:** **{opt.payback_month} mo**")
                 else:
-                    st.metric("Mensualité" if lang == "fr" else "Monthly Payment", "—")
+                    st.metric("Traite Mensuelle" if lang == "fr" else "Monthly Payment", "—")
                     st.error(opt.rejection_reason)
 
     # Detailed Schedule Table & Printable Proposal
@@ -643,33 +667,36 @@ with tab_leasing:
     with st.container(border=True):
         st.markdown(
             f"#### 📜 DEVIS COMMERCIAL D'OFFRE EN CRÉDIT-BAIL\n"
-            f"**Véhicule :** Camion Benne Chantier 20m³ | **Référence Marché :** {format_fcfa(chosen_opt.base_cash_price)}"
+            f"**Véhicule :** Camion Benne Chantier 20m³ | **Prix Comptant de Référence :** {format_fcfa(chosen_opt.base_cash_price)}"
         )
         q_c1, q_c2, q_c3 = st.columns(3)
         with q_c1:
+            st.write(f"• **Valeur comptant du camion :** {format_fcfa(chosen_opt.base_cash_price)}")
             st.write(f"• **Apport initial (Acompte) :** {format_fcfa(chosen_opt.initial_deposit)}")
-            st.write(f"• **Reliquat financé :** {format_fcfa(chosen_opt.financed_balance)}")
+            st.write(f"• **Capital camion financé :** {format_fcfa(chosen_opt.financed_balance)}")
         with q_c2:
             st.write(f"• **Durée du crédit-bail :** {chosen_opt.term_months} mois")
-            st.write(f"• **Traite mensuelle :** **{format_fcfa(chosen_opt.monthly_installment)} / mois**")
+            st.write(f"• **Intérêts crédit-bail :** +{format_fcfa(chosen_opt.total_interest_paid)}")
+            st.write(f"• **Total des mensualités :** {format_fcfa(chosen_opt.total_installments)}")
         with q_c3:
-            st.write(f"• **Intérêts financiers :** +{format_fcfa(chosen_opt.total_interest_paid)}")
+            st.write(f"• **Traite mensuelle :** **{format_fcfa(chosen_opt.monthly_installment)} / mois**")
             st.write(f"• **Montant total du contrat :** **{format_fcfa(chosen_opt.total_contract_price)}**")
+            st.write(f"• **Bénéfice Net Entreprise :** **{format_fcfa(chosen_opt.company_net_profit)}**")
 
         st.caption(
             "Conditions de validation : Sous réserve d'acceptation du dossier technique, versement de l'apport initial à la signature "
-            "et souscription obligatoire de l'assurance tous risques."
+            "et souscription obligatoire de l'assurance tous risques avec balise GPS active."
             if lang == "fr"
-            else "Validation terms: Subject to technical file approval and upfront deposit payment."
+            else "Validation terms: Subject to technical file approval, initial deposit at signing, and mandatory all-risk insurance with active GPS tracking."
         )
 
         if chosen_opt.evaluation:
             df_opt_sched = pd.DataFrame([
                 {
                     "Mois": row.month,
-                    "Créance Début": format_fcfa(row.opening_receivable),
+                    "Solde Restant Dû": format_fcfa(row.opening_receivable),
                     "Traite Mensuelle": format_fcfa(row.installment),
-                    "Créance Fin": format_fcfa(row.closing_receivable),
+                    "Nouveau Solde": format_fcfa(row.closing_receivable),
                     "Cumul Encaissé": format_fcfa(row.cumulative_cash_received),
                 }
                 for row in chosen_opt.evaluation.rows

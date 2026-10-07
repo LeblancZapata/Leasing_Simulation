@@ -64,6 +64,7 @@ from simulator.sale import (
 from simulator.lease import (
     ALLOWED_LEASE_TERMS,
     MINIMUM_LEASE_DEPOSIT,
+    OPTIMAL_ANNUAL_LEASING_RATE,
     LeaseScheduleRow,
     LeaseEvaluationResult,
     calculate_lease_price_first,
@@ -192,6 +193,7 @@ __all__ = [
     "generate_market_comparison_table",
     "ALLOWED_LEASE_TERMS",
     "MINIMUM_LEASE_DEPOSIT",
+    "OPTIMAL_ANNUAL_LEASING_RATE",
     "LeaseScheduleRow",
     "LeaseEvaluationResult",
     "calculate_lease_price_first",
