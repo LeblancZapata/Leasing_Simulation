@@ -72,6 +72,24 @@ from simulator.lease import (
     lease_schedule_to_dataframe,
 )
 
+from simulator.costs import (
+    LeaseProtectionBreakdown,
+    calculate_lease_protection,
+    FleetOperationalCostConfig,
+)
+
+from simulator.taxes import (
+    DGI_GTC_2026_REFERENCE,
+    STATUTORY_VAT_RATE,
+    TaxProvenance,
+    TaxParameterMetadata,
+    TAX_METADATA_REGISTRY,
+    TaxConfiguration,
+    calculate_vat,
+    calculate_corporate_income_tax,
+    calculate_tax_impact,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -125,4 +143,16 @@ __all__ = [
     "calculate_lease_payment_first",
     "calculate_dynamic_recommended_lease_price",
     "lease_schedule_to_dataframe",
+    "LeaseProtectionBreakdown",
+    "calculate_lease_protection",
+    "FleetOperationalCostConfig",
+    "DGI_GTC_2026_REFERENCE",
+    "STATUTORY_VAT_RATE",
+    "TaxProvenance",
+    "TaxParameterMetadata",
+    "TAX_METADATA_REGISTRY",
+    "TaxConfiguration",
+    "calculate_vat",
+    "calculate_corporate_income_tax",
+    "calculate_tax_impact",
 ]

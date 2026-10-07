@@ -7,6 +7,9 @@ import simulator
 from simulator import (
     FinancingAssumptions,
     ProcurementAssumptions,
+    ProtectionCostConfig,
+    TaxConfiguration,
+    calculate_lease_protection,
     LANDED_COST_PRESETS,
     DEFAULT_BATCH_STEP,
     generate_loan_schedule_from_assumptions,
@@ -146,6 +149,53 @@ with st.sidebar.expander("Procurement Contingency", expanded=False):
         step=500_000.0,
         format="%.0f",
     )
+
+with st.sidebar.expander("🏛️ Taxes & Fiscal Regimes (2026 GTC)", expanded=False):
+    st.caption("Statutory Source: Cameroon General Tax Code 2026 (DGI)")
+    vat_rate_in = st.slider(
+        "VAT Rate (%) [VERIFIED STATUTORY]",
+        min_value=0.0,
+        max_value=30.0,
+        value=19.25,
+        step=0.25,
+        help="Verified Statutory Rate: Art. 149 CGI (17.5% base + 10% CAC = 19.25%).",
+    )
+    vat_rec_in = st.checkbox(
+        "VAT is Recoverable [INPUT ASSUMPTION]",
+        value=False,
+        help="Input Assumption: Depends on taxpayer regime (Régime Réel) and vehicle commercial usage.",
+    )
+    cit_rate_in = st.slider(
+        "Corporate Income Tax (%) [INPUT ASSUMPTION]",
+        min_value=0.0,
+        max_value=40.0,
+        value=30.0,
+        step=1.0,
+        help="Input Assumption: Standard statutory corporate income tax rate on net taxable profits.",
+    )
+    reg_fee_in = st.number_input(
+        "Vehicle Title / Registration (FCFA) [INPUT ASSUMPTION]",
+        min_value=0.0,
+        value=500_000.0,
+        step=50_000.0,
+        format="%.0f",
+    )
+    road_tax_in = st.number_input(
+        "Annual Axle / Road Tax (FCFA) [INPUT ASSUMPTION]",
+        min_value=0.0,
+        value=150_000.0,
+        step=25_000.0,
+        format="%.0f",
+    )
+
+tax_configuration = TaxConfiguration(
+    vat_rate=vat_rate_in / 100.0,
+    vat_recoverable=vat_rec_in,
+    corporate_income_tax_rate=cit_rate_in / 100.0,
+    registration_fees_per_truck=reg_fee_in,
+    annual_road_tax=road_tax_in,
+)
+
 
 # ---------------------------------------------------------------------------
 # Instantiate Domain Assumptions
@@ -518,21 +568,20 @@ with tab_leasing:
         )
 
     with lease_right:
-        with st.expander("Lease Protection & Cost Structure", expanded=False):
-            upfront_protection = st.number_input(
-                "Upfront Protection (GPS install, insurance, title) FCFA",
-                min_value=0.0,
-                value=2_000_000.0,
-                step=250_000.0,
-                format="%.0f",
-            )
-            monthly_protection = st.number_input(
-                "Monthly Monitoring / Tracking Fee (FCFA/month)",
-                min_value=0.0,
-                value=25_000.0,
-                step=5_000.0,
-                format="%.0f",
-            )
+        with st.expander("🛡️ Section 9.1 Security Costs per Leased Truck", expanded=False):
+            st.caption("Configurable legal, tracking, and risk reserves (all with individual on/off toggles):")
+            prot_cfg = ProtectionCostConfig()
+            prot_cfg.gps_installation.enabled = st.checkbox("GPS Installation (150k)", value=True)
+            prot_cfg.gps_monthly_sub.enabled = st.checkbox("GPS Monthly Subscription (15k/mo)", value=True)
+            prot_cfg.contract_preparation.enabled = st.checkbox("Legal Contract Preparation (250k)", value=True)
+            prot_cfg.customer_credit_check.enabled = st.checkbox("Customer Credit / Background Check (100k)", value=True)
+            prot_cfg.insurance_upfront.enabled = st.checkbox("Mandatory Annual Insurance (1.2M)", value=True)
+            prot_cfg.pre_handover_inspection.enabled = st.checkbox("Pre-handover Technical Inspection (100k)", value=True)
+            prot_cfg.legal_registration.enabled = st.checkbox("Security / Title Registration (300k)", value=True)
+            prot_cfg.default_reserve.enabled = st.checkbox("Default / Collection Reserve (5% of receivable)", value=True)
+            prot_cfg.repossession_reserve.enabled = st.checkbox("Repossession / Recovery Reserve (500k)", value=True)
+            prot_cfg.legal_enforcement_reserve.enabled = st.checkbox("Legal Enforcement Reserve (300k)", value=True)
+
             discount_rate_input = st.slider(
                 "Discount Rate for NPV (%)",
                 min_value=5.0,
@@ -551,6 +600,14 @@ with tab_leasing:
                 if early_payoff_active
                 else None
             )
+
+        # Compute initial estimated protection costs
+        estimated_financed = max(0.0, 58_000_000.0 - lease_deposit)
+        temp_prot = calculate_lease_protection(prot_cfg, estimated_financed, selected_term)
+        upfront_protection = temp_prot.fixed_upfront_total + temp_prot.variable_amount
+        monthly_protection = temp_prot.monthly_recurring_total
+        st.info(f"🛡️ **Protection Cost per Leased Truck:** **{format_fcfa(temp_prot.total_protection_cost)}** ({selected_term}-mo term)")
+
 
     rec_contract_price = calculate_dynamic_recommended_lease_price(
         truck_cost=procurement_assumptions.effective_unit_cost,
