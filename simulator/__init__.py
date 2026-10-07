@@ -114,6 +114,23 @@ from simulator.simulation import (
     simulation_to_dataframe,
 )
 
+from simulator.metrics import (
+    calculate_roi,
+    calculate_cash_on_cash,
+    calculate_dscr,
+    StrategyMetrics,
+    StrategyRecommendation,
+    compare_strategies,
+)
+
+from simulator.scenarios import (
+    DEFAULT_SCENARIO_COSTS,
+    DEFAULT_SCENARIO_RATES,
+    DEFAULT_SCENARIO_TERMS,
+    run_scenario_matrix,
+    run_preset_comparison,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -194,4 +211,15 @@ __all__ = [
     "SimulationResult",
     "run_portfolio_simulation",
     "simulation_to_dataframe",
+    "calculate_roi",
+    "calculate_cash_on_cash",
+    "calculate_dscr",
+    "StrategyMetrics",
+    "StrategyRecommendation",
+    "compare_strategies",
+    "DEFAULT_SCENARIO_COSTS",
+    "DEFAULT_SCENARIO_RATES",
+    "DEFAULT_SCENARIO_TERMS",
+    "run_scenario_matrix",
+    "run_preset_comparison",
 ]

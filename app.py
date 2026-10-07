@@ -7,6 +7,9 @@ import simulator
 from simulator import (
     FinancingAssumptions,
     ProcurementAssumptions,
+    CashSaleAssumptions,
+    LeaseAssumptions,
+    ExploitationAssumptions,
     ProtectionCostConfig,
     TaxConfiguration,
     calculate_lease_protection,
@@ -17,6 +20,15 @@ from simulator import (
     evaluate_procurement_from_assumptions,
     format_fcfa,
     format_pct,
+    compare_strategies,
+    calculate_dscr,
+    calculate_roi,
+    run_scenario_matrix,
+    run_preset_comparison,
+    DEFAULT_SCENARIO_COSTS,
+    DEFAULT_SCENARIO_RATES,
+    DEFAULT_SCENARIO_TERMS,
+    StrategyType,
 )
 
 st.set_page_config(
@@ -235,13 +247,14 @@ initial_procurement_eval = evaluate_procurement_from_assumptions(
 # ---------------------------------------------------------------------------
 # Main Tabs
 # ---------------------------------------------------------------------------
-tab_assumptions, tab_sale, tab_leasing, tab_exploit, tab_results = st.tabs(
+tab_assumptions, tab_sale, tab_leasing, tab_exploit, tab_results, tab_scenarios = st.tabs(
     [
         "🏦 Financing & Procurement",
         "💰 Strategy A: Cash Sale",
         "📄 Strategy B: Leasing",
         "🚜 Strategy C: Exploitation",
-        "📊 Results & Allocation",
+        "📊 Results & Strategy Comparison",
+        "🎯 Scenario Matrix & Sensitivity",
     ]
 )
 
@@ -940,7 +953,7 @@ with tab_exploit:
             )
 
 
-# TAB 5: Portfolio Results & Simulation
+# TAB 5: Portfolio Results, Strategy Comparison & Warning Center
 with tab_results:
     from simulator.portfolio import StrategyType
     from simulator.simulation import (
@@ -949,6 +962,106 @@ with tab_results:
         simulation_to_dataframe,
     )
 
+    st.subheader("🏆 Strategy Decision Engine & Multi-Strategy Comparison (Section 12.1)")
+    st.markdown(
+        r"Decision rule: $\text{best\_strategy} = \arg\max(\text{risk\_adjusted\_npv})$, "
+        r"subject to $\text{minimum\_cash} \ge \text{required\_reserve}$, $\text{lease\_deposit} \ge 10\text{M FCFA}$, "
+        r"and discrete batch orders $\pmod{5} == 0$."
+    )
+
+    # 1. Strategy Comparison & Recommendation Card
+    try:
+        strategy_rec = compare_strategies(
+            landed_cost=procurement_assumptions.effective_unit_cost,
+            annual_financing_rate=financing_assumptions.annual_financing_rate,
+            horizon_months=loan_term_months,
+            cash_sale_price=customer_offer if 'customer_offer' in locals() else 48_000_000.0,
+            holding_period_sale=holding_period if 'holding_period' in locals() else 1,
+            lease_term=selected_term if 'selected_term' in locals() else 24,
+            lease_deposit=lease_deposit if 'lease_deposit' in locals() else 10_000_000.0,
+            lease_contract_price=target_contract_price if 'target_contract_price' in locals() else (rec_contract_price if 'rec_contract_price' in locals() else 58_000_000.0),
+            upfront_protection=upfront_protection if 'upfront_protection' in locals() else 2_000_000.0,
+            monthly_protection=monthly_protection if 'monthly_protection' in locals() else 15_000.0,
+            exploit_monthly_profit=st.session_state.exploit_profit if 'exploit_profit' in st.session_state else 2_500_000.0,
+            exploit_downtime=(downtime_pct / 100.0) if 'downtime_pct' in locals() else 0.0,
+            required_reserve=min_cash_reserve,
+            batch_step=batch_size,
+        )
+    except Exception as e:
+        strategy_rec = None
+        st.warning(f"Could not compute comparative strategy recommendation: {e}")
+
+    if strategy_rec:
+        rec_col1, rec_col2 = st.columns([3, 1])
+        with rec_col1:
+            st.success(
+                f"🌟 **RECOMMENDED STRATEGY: {strategy_rec.recommended_strategy.value.upper()}**\n\n"
+                f"{strategy_rec.recommendation_reason}"
+            )
+        with rec_col2:
+            st.markdown("**Constraint Invariants:**")
+            dep_ok = strategy_rec.constraints_verified.get("lease_deposit_above_10m", True)
+            res_ok = strategy_rec.constraints_verified.get("cash_reserve_preserved", True)
+            batch_ok = strategy_rec.constraints_verified.get("discrete_batch_rule", True)
+            st.write(f"{'✅' if dep_ok else '❌'} Deposit $\ge$ 10M FCFA")
+            st.write(f"{'✅' if res_ok else '❌'} Cash Reserve Protected")
+            st.write(f"{'✅' if batch_ok else '❌'} Multiples of {batch_size} Discrete")
+
+        # 3 Comparative Strategy Cards Side-by-Side (Section 14)
+        st.markdown("#### Comparative Investment Cards (Per Truck Basis)")
+        card_a, card_b, card_c = st.columns(3)
+
+        strat_cards = [
+            (card_a, StrategyType.CASH_SALE, "💰 Strategy A: Direct Sale"),
+            (card_b, StrategyType.LEASING, f"📄 Strategy B: Customer Lease ({selected_term if 'selected_term' in locals() else 24}m)"),
+            (card_c, StrategyType.EXPLOITATION, "🚜 Strategy C: Fleet Exploitation"),
+        ]
+
+        for card_col, s_type, s_title in strat_cards:
+            sm = strategy_rec.metrics_by_strategy[s_type]
+            with card_col:
+                is_best = (strategy_rec.recommended_strategy == s_type)
+                with st.container(border=True):
+                    if is_best:
+                        st.caption("⭐ **OPTIMAL RECOMMENDATION**")
+                    st.markdown(f"### {s_title}")
+                    
+                    st.metric("Risk-Adjusted NPV", format_fcfa(sm.risk_adjusted_npv))
+                    
+                    mc1, mc2 = st.columns(2)
+                    with mc1:
+                        st.metric("Net Profit", format_fcfa(sm.net_profit))
+                        st.metric("ROI", format_pct(sm.roi))
+                    with mc2:
+                        irr_txt = format_pct(sm.irr_annualized) if sm.irr_annualized is not None else "N/A"
+                        st.metric("Annualized IRR", irr_txt)
+                        payback_txt = f"{sm.payback_period_months:.1f} mos" if sm.payback_period_months is not None else "N/A"
+                        st.metric("Payback", payback_txt)
+
+                    st.caption(f"**Liquidity Impact:** {sm.liquidity_impact}")
+                    
+                    with st.expander("Strategic Pros & Cons", expanded=False):
+                        st.markdown("**Pros:**")
+                        for p in sm.pros:
+                            st.write(f"- {p}")
+                        st.markdown("**Cons:**")
+                        for c in sm.cons:
+                            st.write(f"- {c}")
+
+        # Comparative Table
+        with st.expander("📋 Detailed 3-Strategy Comparison Table", expanded=False):
+            df_disp = strategy_rec.comparison_table.copy()
+            for col in ["Net Profit", "NPV", "Risk-Adjusted NPV", "Immediate Cash Inflow"]:
+                if col in df_disp.columns:
+                    df_disp[col] = df_disp[col].apply(format_fcfa)
+            for col in ["Gross Margin", "ROI", "Annualized IRR"]:
+                if col in df_disp.columns:
+                    df_disp[col] = df_disp[col].apply(lambda x: format_pct(x) if pd.notnull(x) else "N/A")
+            if "Payback (Months)" in df_disp.columns:
+                df_disp["Payback (Months)"] = df_disp["Payback (Months)"].apply(lambda x: f"{x:.1f} mos" if pd.notnull(x) else "N/A")
+            st.dataframe(df_disp, width="stretch", hide_index=True)
+
+    st.markdown("---")
     st.subheader("📊 Portfolio Simulation & Multi-Year Allocation Engine")
     st.markdown(
         "Deterministic monthly portfolio simulation (Section 11): tracking cash balances, debt service, "
@@ -989,13 +1102,13 @@ with tab_results:
         primary_strategy=sim_strategy,
         cash_sale=pricing_result if 'pricing_result' in locals() else CashSaleAssumptions(),
         lease=lease_assumptions if 'lease_assumptions' in locals() else LeaseAssumptions(
-            term_months=selected_term,
-            initial_deposit=lease_deposit,
+            term_months=selected_term if 'selected_term' in locals() else 24,
+            initial_deposit=lease_deposit if 'lease_deposit' in locals() else 10_000_000.0,
             total_contract_price=target_contract_price if 'target_contract_price' in locals() else None,
         ),
         exploitation=ExploitationAssumptions(
             net_monthly_profit_per_truck=st.session_state.exploit_profit,
-            downtime_allowance_rate=downtime_pct / 100.0,
+            downtime_allowance_rate=downtime_pct / 100.0 if 'downtime_pct' in locals() else 0.0,
             gps_monthly_cost=gps_monthly_exp if 'gps_monthly_exp' in locals() else 0.0,
             other_monthly_overhead=overhead_monthly_exp if 'overhead_monthly_exp' in locals() else 0.0,
         ),
@@ -1007,6 +1120,57 @@ with tab_results:
     # Execute deterministic simulation
     sim_result = run_portfolio_simulation(sim_config)
     df_sim = simulation_to_dataframe(sim_result)
+
+    # -----------------------------------------------------------------------
+    # Section 14: Risk & Liquidity Warning Center
+    # -----------------------------------------------------------------------
+    st.markdown("#### 🚨 Risk & Liquidity Warning Center (Section 14)")
+    overall_dscr = calculate_dscr(sim_result.cumulative_cash_generated, sim_result.cumulative_debt_service_paid)
+    
+    warnings_found = []
+    if sim_result.minimum_cash_experienced < min_cash_reserve:
+        warnings_found.append((
+            "error",
+            f"**Liquidity Reserve Breached:** Minimum cash experienced dropped to **{format_fcfa(sim_result.minimum_cash_experienced)}**, "
+            f"which is below the required reserve buffer of **{format_fcfa(min_cash_reserve)}**."
+        ))
+    if 'offer_econ' in locals() and not offer_econ.is_above_floor:
+        warnings_found.append((
+            "warning",
+            f"**Cash Sale Price Below Floor:** Current buyer offer ({format_fcfa(customer_offer)}) is below the break-even "
+            f"price floor ({format_fcfa(pricing_result.price_floor)})."
+        ))
+    if overall_dscr is not None and overall_dscr < 1.0:
+        warnings_found.append((
+            "error",
+            f"**Critical Debt Service Risk:** Debt Service Coverage Ratio (DSCR) is **{overall_dscr:.2f}x (< 1.00x)**. "
+            f"Total operating receipts ({format_fcfa(sim_result.cumulative_cash_generated)}) do not cover total bank loan repayments ({format_fcfa(sim_result.cumulative_debt_service_paid)}) without drawing down initial cash reserves."
+        ))
+    elif overall_dscr is not None and overall_dscr < 1.25:
+        warnings_found.append((
+            "warning",
+            f"**Narrow Debt Coverage Warning:** DSCR is **{overall_dscr:.2f}x (< 1.25x)**. Bank risk tolerance standards typically require at least 1.25x coverage."
+        ))
+    if initial_procurement_eval.purchasable_trucks == 0:
+        warnings_found.append((
+            "error",
+            f"**Initial Procurement Impossible:** Net starting capital ({format_fcfa(initial_procurement_eval.capital_after_reserve)}) "
+            f"is insufficient to purchase an initial batch of {batch_size} trucks. Shortfall: **{format_fcfa(initial_procurement_eval.cash_shortfall)}**."
+        ))
+    if ('lease_deposit' in locals()) and lease_deposit < 10_000_000.0:
+        warnings_found.append((
+            "error",
+            f"**Statutory Deposit Violation:** Lease initial deposit ({format_fcfa(lease_deposit)}) is below the required 10,000,000 FCFA minimum."
+        ))
+
+    if warnings_found:
+        for w_type, msg in warnings_found:
+            if w_type == "error":
+                st.error(f"🚨 {msg}")
+            else:
+                st.warning(f"⚠️ {msg}")
+    else:
+        st.success("✅ **Risk Check Clean:** All liquidity reserves, pricing floors, DSCR thresholds, and batch procurement invariants are strictly satisfied.")
 
     st.markdown("---")
     # Top KPI Metrics Row
@@ -1099,27 +1263,46 @@ with tab_results:
                 st.plotly_chart(fig_sim, use_container_width=True)
 
     with chart2_col:
-        st.markdown("##### Fleet Scaling over Time (Discrete Batches)")
+        st.markdown("##### Monthly Cash Inflows vs Debt Service & Reinvestment")
         if not df_sim.empty:
-            fig_fleet = go.Figure()
-            fig_fleet.add_trace(
+            fig_flows = go.Figure()
+            fig_flows.add_trace(
                 go.Bar(
                     x=df_sim["Month"],
-                    y=df_sim["Fleet Size"],
-                    name="Fleet Size (Trucks)",
-                    marker_color="#1f77b4",
+                    y=df_sim["Total Inflows"],
+                    name="Total Gross Inflows",
+                    marker_color="#2ca02c",
                 )
             )
-            fig_fleet.update_layout(
+            fig_flows.add_trace(
+                go.Bar(
+                    x=df_sim["Month"],
+                    y=df_sim["Debt Service"],
+                    name="Debt Service Outflow",
+                    marker_color="#d62728",
+                )
+            )
+            if "Reinvestment Cost" in df_sim.columns:
+                fig_flows.add_trace(
+                    go.Bar(
+                        x=df_sim["Month"],
+                        y=df_sim["Reinvestment Cost"],
+                        name="Reinvestment Outflow",
+                        marker_color="#1f77b4",
+                    )
+                )
+            fig_flows.update_layout(
+                barmode="group",
                 xaxis_title="Month",
-                yaxis_title="Truck Count",
+                yaxis_title="FCFA",
                 height=350,
                 margin=dict(l=20, r=20, t=30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             )
             try:
-                st.plotly_chart(fig_fleet, width="stretch")
+                st.plotly_chart(fig_flows, width="stretch")
             except TypeError:
-                st.plotly_chart(fig_fleet, use_container_width=True)
+                st.plotly_chart(fig_flows, use_container_width=True)
 
     # Detailed Table
     st.markdown("##### Monthly Simulation Trajectory Table")
@@ -1145,6 +1328,132 @@ with tab_results:
             file_name=f"portfolio_simulation_{sim_strategy.value}_{loan_term_months}m.csv",
             mime="text/csv",
         )
+
+
+# TAB 6: Scenario Matrix Runner (Step 12 & Section 13)
+with tab_scenarios:
+    st.subheader("🎯 Scenario Matrix & Multi-Variable Sensitivity (Step 12)")
+    st.markdown(
+        r"Evaluate portfolio resilience across the complete $3 \times 3 \times 4 = 36$ scenario matrix: "
+        r"**Truck Landed Cost** (38M, 40M, 42M) $\times$ **Financing Rate** (15%, 20%, 25%) $\times$ **Lease Term** (6, 12, 18, 24 months)."
+    )
+
+    # 1. Preset Quick Comparison: Best (38M), Average (40M), Worst (42M)
+    st.markdown("#### 1. Landed Cost Presets Comparison (at Benchmark 20% Rate & 24m Term)")
+    df_preset_comp = run_preset_comparison(
+        rate=annual_rate_pct / 100.0,
+        term=selected_term if 'selected_term' in locals() else 24,
+        loan_amount=loan_amount,
+        loan_term_months=loan_term_months,
+        lease_deposit=lease_deposit if 'lease_deposit' in locals() else 10_000_000.0,
+        exploit_monthly_profit=st.session_state.exploit_profit if 'exploit_profit' in st.session_state else 2_500_000.0,
+        downtime=(downtime_pct / 100.0) if 'downtime_pct' in locals() else 0.0,
+    )
+
+    preset_c1, preset_c2, preset_c3 = st.columns(3)
+    presets_meta = [
+        (preset_c1, "Best Case (38M FCFA)", 0),
+        (preset_c2, "Average Case (40M FCFA)", 1),
+        (preset_c3, "Worst Case (42M FCFA)", 2),
+    ]
+    for p_col, p_title, row_idx in presets_meta:
+        if row_idx < len(df_preset_comp):
+            p_row = df_preset_comp.iloc[row_idx]
+            with p_col:
+                with st.container(border=True):
+                    st.markdown(f"##### {p_title}")
+                    st.metric("Recommended Cash Sale", format_fcfa(p_row["Sale Rec Price"]))
+                    st.metric("Recommended Lease Price", format_fcfa(p_row["Lease Rec Price"]))
+                    st.metric("Monthly Installment", format_fcfa(p_row["Lease Monthly Installment"]))
+                    st.info(f"🏆 Best Strategy: **{p_row['Recommended Strategy']}**\n\nNPV: **{format_fcfa(p_row['Best Risk-Adjusted NPV'])}**")
+
+    st.markdown("---")
+    # 2. Complete 36-Scenario Matrix
+    st.markdown("#### 2. Full 36-Scenario Sensitivity Matrix")
+    
+    # Run full matrix
+    with st.spinner("Computing 36-scenario matrix..."):
+        df_full_matrix = run_scenario_matrix(
+            loan_amount=loan_amount,
+            loan_term_months=loan_term_months,
+            lease_deposit=lease_deposit if 'lease_deposit' in locals() else 10_000_000.0,
+            exploit_monthly_profit=st.session_state.exploit_profit if 'exploit_profit' in st.session_state else 2_500_000.0,
+            exploit_downtime=(downtime_pct / 100.0) if 'downtime_pct' in locals() else 0.0,
+            required_reserve=min_cash_reserve,
+        )
+
+    # Filtering options
+    mf_col1, mf_col2, mf_col3, mf_col4 = st.columns(4)
+    with mf_col1:
+        cost_filter = st.multiselect(
+            "Filter Truck Cost Preset",
+            options=list(df_full_matrix["Scenario Cost"].unique()),
+            default=list(df_full_matrix["Scenario Cost"].unique()),
+        )
+    with mf_col2:
+        rate_filter = st.multiselect(
+            "Filter Financing Rate",
+            options=[0.15, 0.20, 0.25],
+            default=[0.15, 0.20, 0.25],
+            format_func=lambda r: f"{r:.0%}",
+        )
+    with mf_col3:
+        term_filter = st.multiselect(
+            "Filter Lease Term",
+            options=[6, 12, 18, 24],
+            default=[6, 12, 18, 24],
+            format_func=lambda t: f"{t} months",
+        )
+    with mf_col4:
+        strat_filter = st.multiselect(
+            "Filter Winning Strategy",
+            options=list(df_full_matrix["Recommended Strategy"].unique()),
+            default=list(df_full_matrix["Recommended Strategy"].unique()),
+        )
+
+    filtered_df = df_full_matrix[
+        (df_full_matrix["Scenario Cost"].isin(cost_filter)) &
+        (df_full_matrix["Financing Rate"].isin(rate_filter)) &
+        (df_full_matrix["Lease Term (Mos)"].isin(term_filter)) &
+        (df_full_matrix["Recommended Strategy"].isin(strat_filter))
+    ]
+
+    # Summary metrics across filtered scenarios
+    sm_k1, sm_k2, sm_k3, sm_k4 = st.columns(4)
+    with sm_k1:
+        st.metric("Total Scenarios Evaluated", f"{len(filtered_df)} / 36")
+    with sm_k2:
+        top_strat = filtered_df["Recommended Strategy"].mode().iloc[0] if not filtered_df.empty else "N/A"
+        st.metric("Dominant Strategy", top_strat)
+    with sm_k3:
+        avg_npv = filtered_df["Best Risk-Adjusted NPV"].mean() if not filtered_df.empty else 0.0
+        st.metric("Average Best NPV", format_fcfa(avg_npv))
+    with sm_k4:
+        max_npv = filtered_df["Best Risk-Adjusted NPV"].max() if not filtered_df.empty else 0.0
+        st.metric("Max Potential NPV", format_fcfa(max_npv))
+
+    # Display table
+    df_matrix_display = filtered_df.copy()
+    for col in [
+        "Truck Cost (FCFA)", "Monthly Debt Service (500M)", "Sale Rec Price",
+        "Sale Price Floor", "Lease Rec Price", "Lease Monthly Installment",
+        "Best Risk-Adjusted NPV", "Sale NPV", "Lease NPV", "Exploit NPV",
+    ]:
+        if col in df_matrix_display.columns:
+            df_matrix_display[col] = df_matrix_display[col].apply(format_fcfa)
+    df_matrix_display["Financing Rate"] = df_matrix_display["Financing Rate"].apply(format_pct)
+    df_matrix_display["Lease Term (Mos)"] = df_matrix_display["Lease Term (Mos)"].apply(lambda t: f"{t}m")
+
+    st.dataframe(df_matrix_display, width="stretch", hide_index=True)
+
+    csv_matrix = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 Download Full 36-Scenario Matrix (CSV)",
+        data=csv_matrix,
+        file_name="dump_truck_36_scenario_matrix.csv",
+        mime="text/csv",
+    )
+
 
 
 
