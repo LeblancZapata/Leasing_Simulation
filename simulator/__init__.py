@@ -49,6 +49,18 @@ from simulator.acquisition import (
     find_earliest_affordable_month,
 )
 
+from simulator.sale import (
+    MARKET_BENCHMARK_PRICES,
+    CashSalePricingResult,
+    CashSaleEconomics,
+    calculate_financing_carry,
+    calculate_price_floor,
+    calculate_recommended_price,
+    evaluate_cash_sale_pricing,
+    evaluate_sale_price_economics,
+    generate_market_comparison_table,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -85,6 +97,16 @@ __all__ = [
     "evaluate_batch_procurement",
     "evaluate_procurement_from_assumptions",
     "find_earliest_affordable_month",
+    "MARKET_BENCHMARK_PRICES",
+    "CashSalePricingResult",
+    "CashSaleEconomics",
+    "calculate_financing_carry",
+    "calculate_price_floor",
+    "calculate_recommended_price",
+    "evaluate_cash_sale_pricing",
+    "evaluate_sale_price_economics",
+    "generate_market_comparison_table",
 ]
+
 
 

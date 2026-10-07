@@ -185,8 +185,14 @@ initial_procurement_eval = evaluate_procurement_from_assumptions(
 # ---------------------------------------------------------------------------
 # Main Tabs
 # ---------------------------------------------------------------------------
-tab_assumptions, tab_leasing, tab_exploit, tab_results = st.tabs(
-    ["🏦 Financing & Procurement", "📄 Leasing / Installment", "🚜 Exploitation", "📊 Results & Allocation"]
+tab_assumptions, tab_sale, tab_leasing, tab_exploit, tab_results = st.tabs(
+    [
+        "🏦 Financing & Procurement",
+        "💰 Strategy A: Cash Sale",
+        "📄 Strategy B: Leasing",
+        "🚜 Strategy C: Exploitation",
+        "📊 Results & Allocation",
+    ]
 )
 
 # TAB 1: Assumptions, Loan Schedule & Batch Procurement
@@ -344,6 +350,128 @@ with tab_assumptions:
         )
 
 
+# TAB 2: Strategy A - Cash Sale Pricing Engine
+with tab_sale:
+    from simulator.sale import (
+        evaluate_cash_sale_pricing,
+        evaluate_sale_price_economics,
+        generate_market_comparison_table,
+    )
+
+    st.subheader("Strategy A: Direct Cash Sale Pricing & Returns")
+    st.markdown(
+        "Direct immediate cash turnover per truck. Evaluates dynamic price floor, target markup, "
+        "debt carry cost, and market negotiation points."
+    )
+
+    sale_col_left, sale_col_right = st.columns([1, 1])
+
+    with sale_col_left:
+        target_markup_pct = st.slider(
+            "Target Markup (%)",
+            min_value=5.0,
+            max_value=50.0,
+            value=20.0,
+            step=1.0,
+            help="Profit markup applied above unit landed cost (e.g. 20% on 40M yields 48M).",
+        )
+        holding_period = st.slider(
+            "Holding Period Before Sale (Months)",
+            min_value=0,
+            max_value=6,
+            value=1,
+            step=1,
+            help="Number of months capital remains tied up before cash receipt.",
+        )
+        customer_offer = st.number_input(
+            "Customer Offer / Negotiation Price (FCFA)",
+            min_value=10_000_000.0,
+            max_value=100_000_000.0,
+            value=46_000_000.0,
+            step=500_000.0,
+            format="%.0f",
+            help="Candidate buyer price to evaluate against price floor and target margin.",
+        )
+
+    with sale_col_right:
+        with st.expander("Sale Transaction & Risk Adjustments", expanded=False):
+            selling_costs_in = st.number_input("Selling / Brokerage Costs (FCFA)", min_value=0.0, value=0.0, step=100_000.0, format="%.0f")
+            trans_costs_in = st.number_input("Transaction / Delivery Costs (FCFA)", min_value=0.0, value=0.0, step=100_000.0, format="%.0f")
+            risk_reserve_in = st.number_input("Risk Reserve (FCFA)", min_value=0.0, value=0.0, step=100_000.0, format="%.0f")
+            min_profit_in = st.number_input("Minimum Floor Profit (FCFA)", min_value=0.0, value=0.0, step=250_000.0, format="%.0f")
+
+    # Evaluate Pricing
+    pricing_result = evaluate_cash_sale_pricing(
+        landed_cost=procurement_assumptions.effective_unit_cost,
+        target_markup=target_markup_pct / 100.0,
+        holding_period_months=holding_period,
+        annual_financing_rate=financing_assumptions.annual_financing_rate,
+        selling_costs=selling_costs_in,
+        transaction_costs=trans_costs_in,
+        risk_reserve=risk_reserve_in,
+        minimum_profit=min_profit_in,
+    )
+
+    offer_econ = evaluate_sale_price_economics(customer_offer, pricing_result)
+
+    st.markdown("---")
+    # Top Pricing Metrics
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Price Floor (Minimum)", format_fcfa(pricing_result.price_floor), help="Strict break-even threshold including carry, costs, and risk reserve")
+    with m2:
+        st.metric("Recommended Price", format_fcfa(pricing_result.recommended_price), help="Formula: Landed Cost * (1 + Markup) + Financing Carry + Costs + Reserve")
+    with m3:
+        st.metric("Customer Offer Price", format_fcfa(customer_offer), delta=f"{format_fcfa(offer_econ.price_floor_delta)} vs floor")
+    with m4:
+        st.metric("Net Profit per Truck", format_fcfa(offer_econ.net_profit), delta=format_pct(offer_econ.net_margin))
+
+    # Decision alert
+    if offer_econ.is_above_floor:
+        st.success(
+            f"✅ **Viable Offer**: The offer of **{format_fcfa(customer_offer)}** exceeds the price floor "
+            f"by **{format_fcfa(offer_econ.price_floor_delta)}** with a net margin of **{format_pct(offer_econ.net_margin)}**. "
+            f"Immediate capital released upon sale: **{format_fcfa(offer_econ.capital_released)}**."
+        )
+    else:
+        st.error(
+            f"⚠️ **Offer Below Floor**: The offer of **{format_fcfa(customer_offer)}** is "
+            f"**{format_fcfa(abs(offer_econ.price_floor_delta))} below the price floor** of {format_fcfa(pricing_result.price_floor)}. "
+            f"Accepting this price results in margin erosion or negative return."
+        )
+
+    # Returns breakdown and benchmark table
+    sc1, sc2 = st.columns([1, 1])
+    with sc1:
+        st.markdown("##### Offer Economics Breakdown")
+        econ_summary_df = pd.DataFrame([
+            {"Metric": "Capital Tied Up", "Value": format_fcfa(offer_econ.capital_tied_up)},
+            {"Metric": "Financing Carry", "Value": format_fcfa(pricing_result.financing_carry)},
+            {"Metric": "Gross Profit", "Value": format_fcfa(offer_econ.gross_profit)},
+            {"Metric": "Gross Margin", "Value": format_pct(offer_econ.gross_margin)},
+            {"Metric": "Net Profit", "Value": format_fcfa(offer_econ.net_profit)},
+            {"Metric": "Net Margin", "Value": format_pct(offer_econ.net_margin)},
+            {"Metric": "Holding-Period Return", "Value": format_pct(offer_econ.holding_period_return)},
+            {"Metric": "Annualized Return", "Value": format_pct(offer_econ.annualized_return)},
+            {"Metric": "Capital Released Immediately", "Value": format_fcfa(offer_econ.capital_released)},
+        ])
+        st.dataframe(econ_summary_df, width="stretch", hide_index=True)
+
+    with sc2:
+        st.markdown("##### Market Benchmark Negotiation Matrix")
+        df_benchmarks = generate_market_comparison_table(pricing_result)
+        df_benchmarks_display = df_benchmarks.copy()
+        df_benchmarks_display["Offer Price"] = df_benchmarks_display["Offer Price"].apply(format_fcfa)
+        df_benchmarks_display["Gross Profit"] = df_benchmarks_display["Gross Profit"].apply(format_fcfa)
+        df_benchmarks_display["Gross Margin"] = df_benchmarks_display["Gross Margin"].apply(format_pct)
+        df_benchmarks_display["Net Profit"] = df_benchmarks_display["Net Profit"].apply(format_fcfa)
+        df_benchmarks_display["Net Margin"] = df_benchmarks_display["Net Margin"].apply(format_pct)
+        df_benchmarks_display["Holding Period Return"] = df_benchmarks_display["Holding Period Return"].apply(format_pct)
+        df_benchmarks_display["Annualized Return"] = df_benchmarks_display["Annualized Return"].apply(format_pct)
+        df_benchmarks_display["Margin vs Floor"] = df_benchmarks_display["Margin vs Floor"].apply(format_fcfa)
+        st.dataframe(df_benchmarks_display, width="stretch", hide_index=True)
+
+
 # Placeholder tabs for future steps
 with tab_leasing:
     st.subheader("Strategy B: Leasing & Installment Plans")
@@ -356,3 +484,4 @@ with tab_exploit:
 with tab_results:
     st.subheader("Comparative Results & Strategy Recommendation")
     st.info("Coming in Step 9-11: Monthly portfolio simulation, discrete 5-truck batch reinvestment, and multi-strategy comparisons.")
+
