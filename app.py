@@ -472,11 +472,218 @@ with tab_sale:
         st.dataframe(df_benchmarks_display, width="stretch", hide_index=True)
 
 
-# Placeholder tabs for future steps
+# TAB 3: Strategy B - Customer Leasing & Installment Plans
 with tab_leasing:
-    st.subheader("Strategy B: Leasing & Installment Plans")
-    st.info("Coming in Step 6: Dynamic lease terms (6, 12, 18, 24 months), deposits (>=10M FCFA), and installment pricing.")
+    from simulator.lease import (
+        calculate_lease_price_first,
+        calculate_lease_payment_first,
+        calculate_dynamic_recommended_lease_price,
+        lease_schedule_to_dataframe,
+    )
 
+    st.subheader("Strategy B: Customer Leasing & Installment Finance")
+    st.markdown(
+        r"Structured vehicle financing for clients with mandatory initial deposit ($\ge$ 10M FCFA) "
+        "and strict 6, 12, 18, or 24-month payment schedules."
+    )
+
+    lease_left, lease_right = st.columns([1, 1])
+
+    with lease_left:
+        selected_term = st.radio(
+            "Lease Term (Months)",
+            options=[6, 12, 18, 24],
+            index=3,
+            horizontal=True,
+            help="V1 strictly supports 6, 12, 18, and 24-month terms.",
+        )
+
+        lease_deposit = st.number_input(
+            "Initial Customer Deposit (FCFA)",
+            min_value=10_000_000.0,
+            max_value=60_000_000.0,
+            value=10_000_000.0,
+            step=1_000_000.0,
+            format="%.0f",
+            help="Statutory minimum initial deposit is 10M FCFA.",
+        )
+
+        calc_direction = st.radio(
+            "Calculation Direction",
+            options=[
+                "Price-First (Target Contract Price)",
+                "Payment-Capacity-First (Customer Monthly Budget)",
+            ],
+            help="Negotiate from desired selling contract price, or customer monthly installment capacity.",
+        )
+
+    with lease_right:
+        with st.expander("Lease Protection & Cost Structure", expanded=False):
+            upfront_protection = st.number_input(
+                "Upfront Protection (GPS install, insurance, title) FCFA",
+                min_value=0.0,
+                value=2_000_000.0,
+                step=250_000.0,
+                format="%.0f",
+            )
+            monthly_protection = st.number_input(
+                "Monthly Monitoring / Tracking Fee (FCFA/month)",
+                min_value=0.0,
+                value=25_000.0,
+                step=5_000.0,
+                format="%.0f",
+            )
+            discount_rate_input = st.slider(
+                "Discount Rate for NPV (%)",
+                min_value=5.0,
+                max_value=35.0,
+                value=20.0,
+                step=0.5,
+                help="Reference hurdle / bank rate used for net present value discounting.",
+            )
+            early_payoff_active = st.checkbox("Model Early Payoff Scenario", value=False)
+            early_payoff_month_in = (
+                st.selectbox(
+                    "Early Payoff Month",
+                    options=list(range(1, selected_term + 1)),
+                    index=max(0, (selected_term // 2) - 1),
+                )
+                if early_payoff_active
+                else None
+            )
+
+    rec_contract_price = calculate_dynamic_recommended_lease_price(
+        truck_cost=procurement_assumptions.effective_unit_cost,
+        initial_deposit=lease_deposit,
+        term_months=selected_term,
+        target_annual_return=0.25,
+        upfront_protection_costs=upfront_protection,
+        monthly_costs=monthly_protection,
+    )
+
+    if calc_direction == "Price-First (Target Contract Price)":
+        target_contract_price = st.number_input(
+            "Total Contract Price (FCFA)",
+            min_value=lease_deposit,
+            max_value=120_000_000.0,
+            value=float(max(58_000_000.0, rec_contract_price)),
+            step=1_000_000.0,
+            format="%.0f",
+            help=f"Total price paid by customer (Deposit + all installments). Recommended target: {format_fcfa(rec_contract_price)}.",
+        )
+        lease_eval = calculate_lease_price_first(
+            total_contract_price=target_contract_price,
+            initial_deposit=lease_deposit,
+            term_months=selected_term,
+            truck_cost=procurement_assumptions.effective_unit_cost,
+            upfront_protection_costs=upfront_protection,
+            monthly_costs=monthly_protection,
+            discount_rate=discount_rate_input / 100.0,
+            early_payoff_month=early_payoff_month_in,
+        )
+    else:
+        max_monthly_budget = st.number_input(
+            "Customer Max Monthly Payment (FCFA/month)",
+            min_value=500_000.0,
+            max_value=10_000_000.0,
+            value=2_000_000.0,
+            step=100_000.0,
+            format="%.0f",
+            help="Maximum affordable monthly installment quoted by customer.",
+        )
+        lease_eval = calculate_lease_payment_first(
+            max_monthly_payment=max_monthly_budget,
+            initial_deposit=lease_deposit,
+            term_months=selected_term,
+            truck_cost=procurement_assumptions.effective_unit_cost,
+            upfront_protection_costs=upfront_protection,
+            monthly_costs=monthly_protection,
+            discount_rate=discount_rate_input / 100.0,
+            early_payoff_month=early_payoff_month_in,
+        )
+
+    st.markdown("---")
+    # Leasing Key KPI Metrics
+    lk1, lk2, lk3, lk4 = st.columns(4)
+    with lk1:
+        st.metric("Monthly Installment", format_fcfa(lease_eval.monthly_installment), help="Regular customer payment per month")
+    with lk2:
+        st.metric("Total Contract Price", format_fcfa(lease_eval.total_contract_price), delta=f"Financed: {format_fcfa(lease_eval.financed_balance)}")
+    with lk3:
+        st.metric("Net Lease Profit", format_fcfa(lease_eval.net_profit), help="Receipts minus truck cost and protection/admin costs")
+    with lk4:
+        st.metric("Break-Even Installment", format_fcfa(lease_eval.break_even_payment), help="Minimum monthly installment to cover all costs")
+
+    lk5, lk6, lk7, lk8 = st.columns(4)
+    with lk5:
+        st.metric("Initial Cash Inflow", format_fcfa(lease_eval.initial_deposit), help="Deposit received immediately upon signing")
+    with lk6:
+        st.metric("NPV (Discounted Cash Flow)", format_fcfa(lease_eval.npv), help=f"NPV discounted at {discount_rate_input:.1f}% annual rate")
+    with lk7:
+        irr_str = format_pct(lease_eval.irr_annualized) if lease_eval.irr_annualized is not None else "N/A"
+        st.metric("Annualized IRR", irr_str, help="Internal rate of return annualized across repayment timeline")
+    with lk8:
+        st.metric("Total Vehicle Costs", format_fcfa(lease_eval.total_costs), help="Truck acquisition + upfront & recurring protection")
+
+    # Schedule Visual Chart & Table
+    df_lease_sched = lease_schedule_to_dataframe(lease_eval)
+    lchart_col, ltable_col = st.columns([1, 1])
+
+    with lchart_col:
+        st.markdown("##### Receivables & Capital Recovery Trajectory")
+        if not df_lease_sched.empty:
+            fig_lease = go.Figure()
+            fig_lease.add_trace(
+                go.Scatter(
+                    x=df_lease_sched["Month"],
+                    y=df_lease_sched["Closing Receivable"],
+                    mode="lines+markers",
+                    name="Outstanding Receivable",
+                    line=dict(color="#d62728", width=3),
+                )
+            )
+            fig_lease.add_trace(
+                go.Scatter(
+                    x=df_lease_sched["Month"],
+                    y=df_lease_sched["Cumulative Recovered"],
+                    mode="lines+markers",
+                    name="Cumulative Cash Inflows",
+                    line=dict(color="#2ca02c", width=3),
+                )
+            )
+            fig_lease.update_layout(
+                xaxis_title="Month",
+                yaxis_title="FCFA",
+                height=350,
+                margin=dict(l=20, r=20, t=30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            try:
+                st.plotly_chart(fig_lease, width="stretch")
+            except TypeError:
+                st.plotly_chart(fig_lease, use_container_width=True)
+
+    with ltable_col:
+        st.markdown("##### Customer Repayment Schedule")
+        if not df_lease_sched.empty:
+            df_lease_display = df_lease_sched.copy()
+            for col in ["Opening Receivable", "Installment", "Closing Receivable", "Cumulative Recovered", "Net Cash Flow"]:
+                df_lease_display[col] = df_lease_display[col].apply(lambda x: f"{x:,.0f} FCFA")
+            try:
+                st.dataframe(df_lease_display, height=350, width="stretch")
+            except TypeError:
+                st.dataframe(df_lease_display, height=350, use_container_width=True)
+
+            csv_lease = df_lease_sched.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Lease Repayment Schedule (CSV)",
+                data=csv_lease,
+                file_name=f"lease_schedule_{selected_term}m_{int(lease_deposit/1e6)}M_deposit.csv",
+                mime="text/csv",
+            )
+
+
+# Placeholder tabs for future steps
 with tab_exploit:
     st.subheader("Strategy C: Direct Fleet Exploitation")
     st.info("Coming in Step 8: Monthly profit models (2M - 3M FCFA/month), downtime allowance, and protection costs.")
@@ -484,4 +691,5 @@ with tab_exploit:
 with tab_results:
     st.subheader("Comparative Results & Strategy Recommendation")
     st.info("Coming in Step 9-11: Monthly portfolio simulation, discrete 5-truck batch reinvestment, and multi-strategy comparisons.")
+
 

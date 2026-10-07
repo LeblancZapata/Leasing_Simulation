@@ -61,6 +61,17 @@ from simulator.sale import (
     generate_market_comparison_table,
 )
 
+from simulator.lease import (
+    ALLOWED_LEASE_TERMS,
+    MINIMUM_LEASE_DEPOSIT,
+    LeaseScheduleRow,
+    LeaseEvaluationResult,
+    calculate_lease_price_first,
+    calculate_lease_payment_first,
+    calculate_dynamic_recommended_lease_price,
+    lease_schedule_to_dataframe,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -106,7 +117,12 @@ __all__ = [
     "evaluate_cash_sale_pricing",
     "evaluate_sale_price_economics",
     "generate_market_comparison_table",
+    "ALLOWED_LEASE_TERMS",
+    "MINIMUM_LEASE_DEPOSIT",
+    "LeaseScheduleRow",
+    "LeaseEvaluationResult",
+    "calculate_lease_price_first",
+    "calculate_lease_payment_first",
+    "calculate_dynamic_recommended_lease_price",
+    "lease_schedule_to_dataframe",
 ]
-
-
-
