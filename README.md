@@ -9,9 +9,7 @@ Designed to evaluate and optimize capital allocation for financed dump-truck fle
 4. **Bilingual Interface**: Full instant toggle between French (CEMAC / OHADA business terminology) and English.
 5. **No-Jargon Executive Metrics**: Straightforward cash profit, immediate cash-in-hand, monthly payments, and payback horizons.
 
----
-
-## Project StructureGA403UV:~/Leasing_Simulation$
+## Project Structure
 
 ```
 ├── AGENTS.md                  # Development principles & boundary constraints
