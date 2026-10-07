@@ -100,6 +100,20 @@ from simulator.taxes import (
     calculate_tax_impact,
 )
 
+from simulator.portfolio import (
+    StrategyType,
+    TruckState,
+    TruckRecord,
+    MonthlyPortfolioSnapshot,
+)
+
+from simulator.simulation import (
+    SimulationConfig,
+    SimulationResult,
+    run_portfolio_simulation,
+    simulation_to_dataframe,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -153,6 +167,13 @@ __all__ = [
     "calculate_lease_payment_first",
     "calculate_dynamic_recommended_lease_price",
     "lease_schedule_to_dataframe",
+    "EXPLOITATION_PROFIT_PRESETS",
+    "ExploitationScheduleRow",
+    "ExploitationEvaluationResult",
+    "calculate_effective_monthly_cash",
+    "calculate_payback_period",
+    "evaluate_exploitation",
+    "exploitation_schedule_to_dataframe",
     "LeaseProtectionBreakdown",
     "calculate_lease_protection",
     "FleetOperationalCostConfig",
@@ -165,11 +186,12 @@ __all__ = [
     "calculate_vat",
     "calculate_corporate_income_tax",
     "calculate_tax_impact",
-    "EXPLOITATION_PROFIT_PRESETS",
-    "ExploitationScheduleRow",
-    "ExploitationEvaluationResult",
-    "calculate_effective_monthly_cash",
-    "calculate_payback_period",
-    "evaluate_exploitation",
-    "exploitation_schedule_to_dataframe",
+    "StrategyType",
+    "TruckState",
+    "TruckRecord",
+    "MonthlyPortfolioSnapshot",
+    "SimulationConfig",
+    "SimulationResult",
+    "run_portfolio_simulation",
+    "simulation_to_dataframe",
 ]

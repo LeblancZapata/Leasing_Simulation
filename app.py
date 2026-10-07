@@ -940,10 +940,212 @@ with tab_exploit:
             )
 
 
-# TAB 5: Portfolio Results Placeholder
+# TAB 5: Portfolio Results & Simulation
 with tab_results:
-    st.subheader("Comparative Results & Strategy Recommendation")
-    st.info("Coming in Step 9-11: Monthly portfolio simulation, discrete 5-truck batch reinvestment, and multi-strategy comparisons.")
+    from simulator.portfolio import StrategyType
+    from simulator.simulation import (
+        SimulationConfig,
+        run_portfolio_simulation,
+        simulation_to_dataframe,
+    )
+
+    st.subheader("📊 Portfolio Simulation & Multi-Year Allocation Engine")
+    st.markdown(
+        "Deterministic monthly portfolio simulation (Section 11): tracking cash balances, debt service, "
+        "reinvestment in discrete 5-truck batches, and liquidity constraints over time."
+    )
+
+    sim_col1, sim_col2 = st.columns([1, 1])
+
+    with sim_col1:
+        strategy_choice_label = st.selectbox(
+            "Primary Portfolio Strategy",
+            options=[
+                "Strategy B: Customer Leasing (Installments & Deposits)",
+                "Strategy C: Direct Fleet Exploitation (Operational Profits)",
+                "Strategy A: Direct Cash Sale (Immediate Capital Turnover)",
+            ],
+            index=0,
+            help="Choose how the financed fleet allocates capital over the simulation timeline.",
+        )
+        if "Leasing" in strategy_choice_label:
+            sim_strategy = StrategyType.LEASING
+        elif "Exploitation" in strategy_choice_label:
+            sim_strategy = StrategyType.EXPLOITATION
+        else:
+            sim_strategy = StrategyType.CASH_SALE
+
+    with sim_col2:
+        reinvest_toggle = st.checkbox(
+            "Enable Discrete Batch Reinvestment (Order 5 trucks when cash allows)",
+            value=True,
+            help="When surplus cash above the minimum reserve covers another full batch of 5 trucks, an order is placed.",
+        )
+
+    # Build Simulation Configuration
+    sim_config = SimulationConfig(
+        financing=financing_assumptions,
+        procurement=procurement_assumptions,
+        primary_strategy=sim_strategy,
+        cash_sale=pricing_result if 'pricing_result' in locals() else CashSaleAssumptions(),
+        lease=lease_assumptions if 'lease_assumptions' in locals() else LeaseAssumptions(
+            term_months=selected_term,
+            initial_deposit=lease_deposit,
+            total_contract_price=target_contract_price if 'target_contract_price' in locals() else None,
+        ),
+        exploitation=ExploitationAssumptions(
+            net_monthly_profit_per_truck=st.session_state.exploit_profit,
+            downtime_allowance_rate=downtime_pct / 100.0,
+            gps_monthly_cost=gps_monthly_exp if 'gps_monthly_exp' in locals() else 0.0,
+            other_monthly_overhead=overhead_monthly_exp if 'overhead_monthly_exp' in locals() else 0.0,
+        ),
+        protection_config=prot_cfg if 'prot_cfg' in locals() else ProtectionCostConfig(),
+        horizon_months=loan_term_months,
+        reinvest_cash=reinvest_toggle,
+    )
+
+    # Execute deterministic simulation
+    sim_result = run_portfolio_simulation(sim_config)
+    df_sim = simulation_to_dataframe(sim_result)
+
+    st.markdown("---")
+    # Top KPI Metrics Row
+    sk1, sk2, sk3, sk4 = st.columns(4)
+    with sk1:
+        st.metric(
+            "Closing Cash Balance",
+            format_fcfa(sim_result.final_cash),
+            delta=f"{format_fcfa(sim_result.final_cash - min_cash_reserve)} above reserve",
+        )
+    with sk2:
+        init_fleet = [t for t in sim_result.trucks if t.acquisition_month == 0]
+        st.metric(
+            "Total Trucks Acquired",
+            f"{sim_result.total_trucks_purchased} trucks",
+            delta=f"+{sim_result.total_trucks_purchased - len(init_fleet)} from reinvestment",
+        )
+    with sk3:
+        st.metric(
+            "Cumulative Cash Generated",
+            format_fcfa(sim_result.cumulative_cash_generated),
+            help="Total gross cash receipts from deposits, installments, operations, and sales.",
+        )
+    with sk4:
+        st.metric(
+            "Final Debt Balance",
+            format_fcfa(sim_result.final_debt),
+            delta="Fully Paid Off" if sim_result.final_debt == 0 else f"{format_fcfa(sim_result.final_debt)} remaining",
+        )
+
+    sk5, sk6, sk7, sk8 = st.columns(4)
+    with sk5:
+        st.metric("Total Debt Service Paid", format_fcfa(sim_result.cumulative_debt_service_paid))
+    with sk6:
+        st.metric("Total Reinvestment Deployed", format_fcfa(sim_result.cumulative_reinvestment_deployed))
+    with sk7:
+        st.metric("Reinvestment Batches Ordered", f"{sim_result.reinvestment_batch_count} batches")
+    with sk8:
+        reserve_ok = sim_result.minimum_cash_experienced >= min_cash_reserve
+        st.metric(
+            "Minimum Cash Experienced",
+            format_fcfa(sim_result.minimum_cash_experienced),
+            delta="Reserve Preserved" if reserve_ok else "Reserve Breached",
+        )
+
+    # Visualization Charts
+    chart1_col, chart2_col = st.columns([1, 1])
+
+    with chart1_col:
+        st.markdown("##### Cash Balance vs Debt Amortization")
+        if not df_sim.empty:
+            fig_sim = go.Figure()
+            fig_sim.add_trace(
+                go.Scatter(
+                    x=df_sim["Month"],
+                    y=df_sim["Closing Cash"],
+                    mode="lines+markers",
+                    name="Closing Cash",
+                    line=dict(color="#2ca02c", width=3),
+                )
+            )
+            fig_sim.add_trace(
+                go.Scatter(
+                    x=df_sim["Month"],
+                    y=df_sim["Closing Debt"],
+                    mode="lines+markers",
+                    name="Remaining Debt",
+                    line=dict(color="#d62728", width=3),
+                )
+            )
+            fig_sim.add_trace(
+                go.Scatter(
+                    x=df_sim["Month"],
+                    y=[min_cash_reserve] * len(df_sim),
+                    mode="lines",
+                    name="Min Cash Reserve",
+                    line=dict(color="#ff7f0e", width=2, dash="dash"),
+                )
+            )
+            fig_sim.update_layout(
+                xaxis_title="Month",
+                yaxis_title="FCFA",
+                height=350,
+                margin=dict(l=20, r=20, t=30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            try:
+                st.plotly_chart(fig_sim, width="stretch")
+            except TypeError:
+                st.plotly_chart(fig_sim, use_container_width=True)
+
+    with chart2_col:
+        st.markdown("##### Fleet Scaling over Time (Discrete Batches)")
+        if not df_sim.empty:
+            fig_fleet = go.Figure()
+            fig_fleet.add_trace(
+                go.Bar(
+                    x=df_sim["Month"],
+                    y=df_sim["Fleet Size"],
+                    name="Fleet Size (Trucks)",
+                    marker_color="#1f77b4",
+                )
+            )
+            fig_fleet.update_layout(
+                xaxis_title="Month",
+                yaxis_title="Truck Count",
+                height=350,
+                margin=dict(l=20, r=20, t=30, b=20),
+            )
+            try:
+                st.plotly_chart(fig_fleet, width="stretch")
+            except TypeError:
+                st.plotly_chart(fig_fleet, use_container_width=True)
+
+    # Detailed Table
+    st.markdown("##### Monthly Simulation Trajectory Table")
+    if not df_sim.empty:
+        df_sim_display = df_sim.copy()
+        for col in [
+            "Opening Cash", "Opening Debt", "Lease Deposits", "Lease Installments",
+            "Exploitation Cash", "Sales Proceeds", "Total Inflows", "Debt Service",
+            "Reinvestment Cost", "Closing Cash", "Closing Debt", "Receivables Outstanding",
+            "Surplus Above Reserve",
+        ]:
+            if col in df_sim_display.columns:
+                df_sim_display[col] = df_sim_display[col].apply(lambda x: f"{x:,.0f} FCFA")
+        try:
+            st.dataframe(df_sim_display, height=350, width="stretch")
+        except TypeError:
+            st.dataframe(df_sim_display, height=350, use_container_width=True)
+
+        csv_sim = df_sim.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📥 Download Full Portfolio Simulation Trajectory (CSV)",
+            data=csv_sim,
+            file_name=f"portfolio_simulation_{sim_strategy.value}_{loan_term_months}m.csv",
+            mime="text/csv",
+        )
+
 
 
 
