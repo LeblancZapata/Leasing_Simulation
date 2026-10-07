@@ -72,6 +72,16 @@ from simulator.lease import (
     lease_schedule_to_dataframe,
 )
 
+from simulator.exploitation import (
+    EXPLOITATION_PROFIT_PRESETS,
+    ExploitationScheduleRow,
+    ExploitationEvaluationResult,
+    calculate_effective_monthly_cash,
+    calculate_payback_period,
+    evaluate_exploitation,
+    exploitation_schedule_to_dataframe,
+)
+
 from simulator.costs import (
     LeaseProtectionBreakdown,
     calculate_lease_protection,
@@ -155,4 +165,11 @@ __all__ = [
     "calculate_vat",
     "calculate_corporate_income_tax",
     "calculate_tax_impact",
+    "EXPLOITATION_PROFIT_PRESETS",
+    "ExploitationScheduleRow",
+    "ExploitationEvaluationResult",
+    "calculate_effective_monthly_cash",
+    "calculate_payback_period",
+    "evaluate_exploitation",
+    "exploitation_schedule_to_dataframe",
 ]

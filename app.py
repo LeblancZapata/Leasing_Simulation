@@ -740,13 +740,210 @@ with tab_leasing:
             )
 
 
-# Placeholder tabs for future steps
+# TAB 4: Strategy C - Direct Fleet Exploitation
 with tab_exploit:
-    st.subheader("Strategy C: Direct Fleet Exploitation")
-    st.info("Coming in Step 8: Monthly profit models (2M - 3M FCFA/month), downtime allowance, and protection costs.")
+    from simulator.exploitation import (
+        EXPLOITATION_PROFIT_PRESETS,
+        evaluate_exploitation,
+        exploitation_schedule_to_dataframe,
+    )
 
+    st.subheader("Strategy C: Direct Fleet Exploitation")
+    st.markdown(
+        "Direct operations producing net operational cash flow after operating charges. "
+        "Evaluates downtime sensitivity, capital payback timeline, and horizon returns."
+    )
+
+    if "exploit_profit" not in st.session_state:
+        st.session_state.exploit_profit = EXPLOITATION_PROFIT_PRESETS["Base"]
+
+    exp_col1, exp_col2 = st.columns([1, 1])
+
+    with exp_col1:
+        net_profit_input = st.number_input(
+            "Net Operational Profit per Truck/Month (FCFA)",
+            min_value=1_000_000.0,
+            max_value=6_000_000.0,
+            value=float(st.session_state.exploit_profit),
+            step=100_000.0,
+            format="%.0f",
+            help="Net profit generated per truck per active working month.",
+            key="exploit_profit_in",
+        )
+        st.session_state.exploit_profit = net_profit_input
+
+        st.caption("Operational Profit Presets (Section 10):")
+        ep_cols = st.columns(3)
+        with ep_cols[0]:
+            if st.button("Min 2.0M", key="btn_exp_min"):
+                st.session_state.exploit_profit = EXPLOITATION_PROFIT_PRESETS["Minimum"]
+                st.rerun()
+        with ep_cols[1]:
+            if st.button("Base 2.5M", key="btn_exp_base"):
+                st.session_state.exploit_profit = EXPLOITATION_PROFIT_PRESETS["Base"]
+                st.rerun()
+        with ep_cols[2]:
+            if st.button("Max 3.0M", key="btn_exp_max"):
+                st.session_state.exploit_profit = EXPLOITATION_PROFIT_PRESETS["Maximum"]
+                st.rerun()
+
+        downtime_pct = st.slider(
+            "Downtime Allowance (%)",
+            min_value=0.0,
+            max_value=30.0,
+            value=0.0,
+            step=1.0,
+            help="Operational buffer for repairs, bad weather, or driver downtime.",
+        )
+
+    with exp_col2:
+        fleet_size_eval = st.number_input(
+            "Operating Truck Count",
+            min_value=1,
+            max_value=100,
+            value=max(1, initial_procurement_eval.purchasable_trucks),
+            step=1,
+            help="Number of dump trucks deployed in company fleet.",
+        )
+        with st.expander("Recurring Monitoring & Overhead Deductions", expanded=False):
+            gps_monthly_exp = st.number_input(
+                "GPS Telematics Cost (FCFA/truck/month)",
+                min_value=0.0,
+                value=15_000.0,
+                step=5_000.0,
+                format="%.0f",
+            )
+            overhead_monthly_exp = st.number_input(
+                "Other Monthly Overhead Allocation (FCFA/truck/month)",
+                min_value=0.0,
+                value=0.0,
+                step=25_000.0,
+                format="%.0f",
+            )
+            horizon_exp = st.slider(
+                "Simulation Horizon (Months)",
+                min_value=12,
+                max_value=60,
+                value=loan_term_months,
+                step=6,
+                help="Horizon over which cumulative cash flow and DCF returns are evaluated.",
+            )
+
+    # Evaluate Exploitation Strategy
+    exploit_result = evaluate_exploitation(
+        truck_cost=procurement_assumptions.effective_unit_cost,
+        net_monthly_profit_per_truck=st.session_state.exploit_profit,
+        downtime_rate=downtime_pct / 100.0,
+        gps_monthly_cost=gps_monthly_exp,
+        other_overhead=overhead_monthly_exp,
+        truck_count=fleet_size_eval,
+        horizon_months=horizon_exp,
+        discount_rate=financing_assumptions.annual_financing_rate,
+    )
+
+    st.markdown("---")
+    # Top KPI Cards
+    ek1, ek2, ek3, ek4 = st.columns(4)
+    with ek1:
+        st.metric(
+            "Effective Cash / Truck / Month",
+            format_fcfa(exploit_result.effective_monthly_cash_per_truck),
+            delta=f"-{downtime_pct:.0f}% downtime" if downtime_pct > 0 else "0% downtime",
+        )
+    with ek2:
+        st.metric(
+            "Total Fleet Monthly Cash",
+            format_fcfa(exploit_result.monthly_cash_fleet),
+            help=f"Combined operational generation for {fleet_size_eval} trucks",
+        )
+    with ek3:
+        payback_str = (
+            f"{exploit_result.payback_period_months:.1f} mos ({exploit_result.payback_period_years:.2f} yrs)"
+            if exploit_result.payback_period_months is not None
+            else "N/A"
+        )
+        st.metric("Payback on Truck Cost", payback_str, help="Time required for net monthly cash to fully pay back the truck acquisition cost")
+    with ek4:
+        st.metric(
+            f"Net Horizon Profit ({horizon_exp} mos)",
+            format_fcfa(exploit_result.net_cash_generated),
+            delta=f"Total: {format_fcfa(exploit_result.total_cash_generated)}",
+        )
+
+    ek5, ek6, ek7, ek8 = st.columns(4)
+    with ek5:
+        st.metric("Annual Fleet Contribution", format_fcfa(exploit_result.annual_cash_fleet), help="Total annual cash flow from active operations")
+    with ek6:
+        st.metric("NPV (Discounted at Loan Rate)", format_fcfa(exploit_result.npv), help=f"Discounted at {annual_rate_pct:.1f}% annual rate")
+    with ek7:
+        exp_irr_str = format_pct(exploit_result.irr_annualized) if exploit_result.irr_annualized is not None else "N/A"
+        st.metric("Annualized IRR", exp_irr_str, help="Internal rate of return on initial fleet investment")
+    with ek8:
+        st.metric("Total Initial Investment", format_fcfa(procurement_assumptions.effective_unit_cost * fleet_size_eval))
+
+    # Visual Chart & Table
+    df_exp_sched = exploitation_schedule_to_dataframe(exploit_result)
+    echart_col, etable_col = st.columns([1, 1])
+
+    with echart_col:
+        st.markdown("##### Cumulative Cash Generation vs Investment Payback")
+        if not df_exp_sched.empty:
+            total_invested = procurement_assumptions.effective_unit_cost * fleet_size_eval
+            fig_exp = go.Figure()
+            fig_exp.add_trace(
+                go.Scatter(
+                    x=df_exp_sched["Month"],
+                    y=df_exp_sched["Cumulative Generated"],
+                    mode="lines+markers",
+                    name="Cumulative Cash Inflows",
+                    line=dict(color="#2ca02c", width=3),
+                )
+            )
+            fig_exp.add_trace(
+                go.Scatter(
+                    x=df_exp_sched["Month"],
+                    y=[total_invested] * len(df_exp_sched),
+                    mode="lines",
+                    name="Initial Capital Invested",
+                    line=dict(color="#d62728", width=2, dash="dash"),
+                )
+            )
+            fig_exp.update_layout(
+                xaxis_title="Month",
+                yaxis_title="FCFA",
+                height=350,
+                margin=dict(l=20, r=20, t=30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            try:
+                st.plotly_chart(fig_exp, width="stretch")
+            except TypeError:
+                st.plotly_chart(fig_exp, use_container_width=True)
+
+    with etable_col:
+        st.markdown("##### Monthly Exploitation Schedule")
+        if not df_exp_sched.empty:
+            df_exp_display = df_exp_sched.copy()
+            for col in ["Gross Operational", "Downtime Loss", "Overhead Deductions", "Net Monthly Cash", "Cumulative Generated", "Unrecovered Capital"]:
+                df_exp_display[col] = df_exp_display[col].apply(lambda x: f"{x:,.0f} FCFA")
+            try:
+                st.dataframe(df_exp_display, height=350, width="stretch")
+            except TypeError:
+                st.dataframe(df_exp_display, height=350, use_container_width=True)
+
+            csv_exp = df_exp_sched.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Exploitation Schedule (CSV)",
+                data=csv_exp,
+                file_name=f"exploitation_schedule_{fleet_size_eval}_trucks_{horizon_exp}m.csv",
+                mime="text/csv",
+            )
+
+
+# TAB 5: Portfolio Results Placeholder
 with tab_results:
     st.subheader("Comparative Results & Strategy Recommendation")
     st.info("Coming in Step 9-11: Monthly portfolio simulation, discrete 5-truck batch reinvestment, and multi-strategy comparisons.")
+
 
 
