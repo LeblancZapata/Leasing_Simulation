@@ -188,8 +188,8 @@ def test_validate_batch_step():
 def test_financing_assumptions_validation():
     fa = FinancingAssumptions()
     assert fa.bank_loan_amount == 500_000_000.0
-    assert fa.annual_financing_rate == 0.20
-    assert fa.monthly_interest_rate == pytest.approx(0.20 / 12.0)
+    assert fa.annual_financing_rate == 0.15
+    assert fa.monthly_interest_rate == pytest.approx(0.15 / 12.0)
 
     # Invalid loan term
     with pytest.raises(SimulatorValidationError):

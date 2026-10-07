@@ -255,27 +255,45 @@ def calculate_dynamic_recommended_lease_price(
     truck_cost: float,
     initial_deposit: float,
     term_months: int,
-    target_annual_return: float = 0.25,
+    base_cash_price: Optional[float] = None,
+    target_annual_return: float = 0.15,
+    commercial_markup: float = 0.15,
     upfront_protection_costs: float = 0.0,
     monthly_costs: float = 0.0,
 ) -> float:
-    """Calculate recommended lease contract price to achieve a target return on invested capital.
-    
-    Formula:
-        Total Capital Invested = truck_cost + upfront_protection_costs
-        Carrying and target return load = Total Capital Invested * (target_annual_return * (term_months / 12))
-        Recommended Total Price = Total Capital Invested + Carrying Load + (monthly_costs * term_months)
+    """Calculate recommended lease contract price ensuring:
+    1. Lease price is strictly greater than the normal cash sale price (base asset value).
+    2. Interest charged is dynamic: client with smaller deposit pays more interest than client
+       with larger deposit, because they hold more of the company's capital.
+    3. Longer timelines accumulate more financing interest than shorter timelines.
     """
     validate_positive_number("Truck cost", truck_cost, allow_zero=False)
     validate_lease_deposit(initial_deposit, min_deposit=MINIMUM_LEASE_DEPOSIT)
     validate_lease_term(term_months, allowed_terms=ALLOWED_LEASE_TERMS)
     validate_rate("Target annual return", target_annual_return, min_rate=0.0, max_rate=2.0)
 
-    capital = truck_cost + upfront_protection_costs
-    return_markup = capital * target_annual_return * (float(term_months) / 12.0)
-    total_operational = monthly_costs * float(term_months)
-    rec_price = capital + return_markup + total_operational
-    return max(rec_price, initial_deposit)
+    # Base commercial cash asset price
+    if base_cash_price is not None and base_cash_price > 0:
+        base_price = base_cash_price + upfront_protection_costs
+    else:
+        base_price = (truck_cost * (1.0 + commercial_markup)) + upfront_protection_costs
+
+    # Remaining principal of company money financed for the client
+    financed_balance = max(0.0, base_price - initial_deposit)
+
+    if financed_balance <= 0.0:
+        return max(base_price, initial_deposit) + (monthly_costs * float(term_months))
+
+    # Amortization monthly rate
+    r_monthly = target_annual_return / 12.0
+    if r_monthly > 0 and term_months > 0:
+        factor = math.pow(1.0 + r_monthly, term_months)
+        installment_principal_interest = financed_balance * (r_monthly * factor) / (factor - 1.0)
+    else:
+        installment_principal_interest = financed_balance / float(term_months)
+
+    total_contract_price = initial_deposit + (installment_principal_interest + monthly_costs) * float(term_months)
+    return round(total_contract_price, 2)
 
 
 def lease_schedule_to_dataframe(result: LeaseEvaluationResult) -> pd.DataFrame:
@@ -308,29 +326,38 @@ class ClientLeaseOption:
     profit_margin: float
     payback_month: int
     is_recommended: bool
+    base_cash_price: float = 0.0
+    total_interest_paid: float = 0.0
     evaluation: Optional[LeaseEvaluationResult] = None
 
 
 def generate_client_lease_options(
     truck_cost: float,
     initial_deposit: float,
+    base_cash_price: Optional[float] = None,
     upfront_protection_costs: float = 0.0,
     monthly_costs: float = 0.0,
-    target_annual_return: float = 0.25,
-    discount_rate: float = 0.20,
+    target_annual_return: float = 0.15,
+    commercial_markup: float = 0.15,
+    discount_rate: float = 0.15,
 ) -> List[ClientLeaseOption]:
     """Generate tailored leasing possibilities for a client based on their down payment.
     
     Core Business Rules:
     - Duration cannot exceed 2 years (max 24 months). Options are 6, 12, 18, 24 months.
     - Initial deposit must be >= 10M FCFA.
-    - If a client provides a large down payment (e.g. 30M FCFA), 18-month and 24-month options
-      are NOT offered because stretching a small remaining balance over 2 years is commercially irrational.
-    - If deposit is medium-high (22M-27M FCFA), 24-month option is NOT offered.
-    - If deposit is standard (10M-15M FCFA), 24-month and 18-month options are recommended to keep monthly payments realistic.
+    - Total lease price is strictly > normal cash sale price (base asset value).
+    - Client with 10M deposit pays MORE interest than client with 30M deposit.
+    - Company net margin is higher for smaller deposits due to greater financing interest.
+    - If deposit is >= 28M FCFA, 18-month and 24-month options are NOT offered.
     """
     options: List[ClientLeaseOption] = []
     terms = [6, 12, 18, 24]
+
+    actual_base_price = (
+        (base_cash_price if base_cash_price is not None and base_cash_price > 0 else (truck_cost * (1.0 + commercial_markup)))
+        + upfront_protection_costs
+    )
 
     if initial_deposit < MINIMUM_LEASE_DEPOSIT:
         for t_mo in terms:
@@ -347,17 +374,20 @@ def generate_client_lease_options(
                     profit_margin=0.0,
                     payback_month=0,
                     is_recommended=False,
+                    base_cash_price=actual_base_price,
+                    total_interest_paid=0.0,
                 )
             )
         return options
 
     for t_mo in terms:
-        # Calculate dynamic contract price to yield target return
         rec_price = calculate_dynamic_recommended_lease_price(
             truck_cost=truck_cost,
             initial_deposit=initial_deposit,
             term_months=t_mo,
+            base_cash_price=base_cash_price,
             target_annual_return=target_annual_return,
+            commercial_markup=commercial_markup,
             upfront_protection_costs=upfront_protection_costs,
             monthly_costs=monthly_costs,
         )
@@ -371,6 +401,8 @@ def generate_client_lease_options(
             monthly_costs=monthly_costs,
             discount_rate=discount_rate,
         )
+
+        total_interest = max(0.0, eval_res.total_contract_price - actual_base_price - (monthly_costs * float(t_mo)))
 
         # Payback calculation: when cumulative cash >= truck cost + upfront
         total_investment = truck_cost + upfront_protection_costs
@@ -390,7 +422,7 @@ def generate_client_lease_options(
         if initial_deposit >= 28_000_000.0:
             if t_mo in (18, 24):
                 is_offered = False
-                rejection_reason = f"Non proposé : avec un apport de {initial_deposit/1e6:.0f}M FCFA, le solde restant est faible. Une durée de {t_mo} mois immobiliserait inutilement le véhicule."
+                rejection_reason = f"Non proposé : avec un acompte de {initial_deposit/1e6:.0f}M FCFA, le reliquat est très faible. Financer ce petit solde sur {t_mo} mois bloquerait le capital de l'entreprise pour des mensualités dérisoires."
             elif t_mo == 6:
                 is_rec = True
             elif t_mo == 12:
@@ -398,7 +430,7 @@ def generate_client_lease_options(
         elif initial_deposit >= 22_000_000.0:
             if t_mo == 24:
                 is_offered = False
-                rejection_reason = f"Non proposé : avec un apport de {initial_deposit/1e6:.0f}M FCFA, la durée maximale conseillée est de 18 mois."
+                rejection_reason = f"Non proposé : avec un acompte de {initial_deposit/1e6:.0f}M FCFA, la durée maximale conseillée est de 18 mois."
             elif t_mo == 12:
                 is_rec = True
         else:  # 10M - 21M deposit
@@ -422,6 +454,8 @@ def generate_client_lease_options(
                 profit_margin=eval_res.net_profit / eval_res.total_contract_price if eval_res.total_contract_price > 0 else 0.0,
                 payback_month=payback_m,
                 is_recommended=is_rec,
+                base_cash_price=actual_base_price,
+                total_interest_paid=total_interest,
                 evaluation=eval_res,
             )
         )

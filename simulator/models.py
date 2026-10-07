@@ -18,7 +18,7 @@ from simulator.primitives import (
 class FinancingAssumptions:
     """Financing assumptions for bank loan and cash management."""
     bank_loan_amount: float = 500_000_000.0
-    annual_financing_rate: float = 0.20
+    annual_financing_rate: float = 0.15
     loan_term_months: int = 36
     bank_arrangement_fees: float = 0.0
     other_bank_charges: float = 0.0
@@ -64,7 +64,7 @@ class ProcurementAssumptions:
 @dataclass
 class CashSaleAssumptions:
     """Strategy A: Cash-sale pricing assumptions."""
-    target_markup: float = 0.20
+    target_markup: float = 0.15
     holding_period_months: int = 1
     acquisition_costs: float = 0.0
     financing_carry: float = 0.0

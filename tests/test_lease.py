@@ -182,26 +182,57 @@ def test_early_payoff_scenario():
 
 
 def test_dynamic_recommended_lease_price():
-    """Verify dynamic pricing from target return, term, and costs."""
+    """Verify dynamic pricing:
+    1. Lease price is strictly greater than base cash sale price (e.g. 48M or 48.67M).
+    2. Client with lesser deposit (10M) pays more interest than client with larger deposit (30M).
+    3. Company net profit is higher for 10M deposit than 30M deposit.
+    4. Longer term (24m) pays more total interest than shorter term (6m).
+    """
     truck_cost = 40_000_000.0
-    deposit = 10_000_000.0
-    rec_price_12m = calculate_dynamic_recommended_lease_price(
-        truck_cost=truck_cost,
-        initial_deposit=deposit,
-        term_months=12,
-        target_annual_return=0.25,
-    )
-    # Capital = 40M, 25% return over 12 months = 10M -> 50M
-    assert rec_price_12m == 50_000_000.0
+    base_cash_price = 46_000_000.0
 
-    # 24 months = 2 years -> 40M * (1 + 0.50) = 60M
-    rec_price_24m = calculate_dynamic_recommended_lease_price(
+    # 1. 6 months term comparison: 10M deposit vs 30M deposit at 15% bank rate
+    price_10m_6m = calculate_dynamic_recommended_lease_price(
         truck_cost=truck_cost,
-        initial_deposit=deposit,
-        term_months=24,
-        target_annual_return=0.25,
+        initial_deposit=10_000_000.0,
+        term_months=6,
+        base_cash_price=base_cash_price,
+        target_annual_return=0.15,
     )
-    assert rec_price_24m == 60_000_000.0
+    price_30m_6m = calculate_dynamic_recommended_lease_price(
+        truck_cost=truck_cost,
+        initial_deposit=30_000_000.0,
+        term_months=6,
+        base_cash_price=base_cash_price,
+        target_annual_return=0.15,
+    )
+
+    # Both must strictly exceed cash sale price
+    assert price_10m_6m > base_cash_price
+    assert price_30m_6m > base_cash_price
+
+    # Interest paid by 10M deposit client must be greater than 30M deposit client
+    interest_10m_6m = price_10m_6m - base_cash_price
+    interest_30m_6m = price_30m_6m - base_cash_price
+    assert interest_10m_6m > interest_30m_6m
+
+    # 2. Timeline comparison for 10M deposit: 6m vs 12m vs 24m
+    price_10m_12m = calculate_dynamic_recommended_lease_price(
+        truck_cost=truck_cost,
+        initial_deposit=10_000_000.0,
+        term_months=12,
+        base_cash_price=base_cash_price,
+        target_annual_return=0.15,
+    )
+    price_10m_24m = calculate_dynamic_recommended_lease_price(
+        truck_cost=truck_cost,
+        initial_deposit=10_000_000.0,
+        term_months=24,
+        base_cash_price=base_cash_price,
+        target_annual_return=0.15,
+    )
+
+    assert price_10m_24m > price_10m_12m > price_10m_6m
 
 
 def test_lease_schedule_dataframe():

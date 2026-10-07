@@ -122,12 +122,14 @@ with st.sidebar:
         help="Montant principal emprunté à la banque pour financer les bennes.",
     )
 
-    annual_rate_pct = st.slider(
-        "Taux d'Intérêt Annuel (%)" if lang == "fr" else "Annual Interest Rate (%)",
+    annual_rate_pct = st.number_input(
+        "Taux d'Intérêt Annuel Banque (%/an)" if lang == "fr" else "Annual Bank Interest Rate (%/yr)",
         min_value=0.0,
         max_value=30.0,
-        value=12.0,
+        value=15.0,
         step=0.5,
+        format="%.1f",
+        help="Taux d'intérêt débiteur fixé à 15%/an par la banque (soit 1,25% par mois)." if lang == "fr" else "Bank borrowing interest rate fixed at 15%/yr (1.25%/month).",
     )
 
     bank_loan_years = st.slider(
@@ -184,6 +186,19 @@ with st.sidebar:
         format="%.0f",
     )
 
+    market_sale_price = st.number_input(
+        "Prix de Vente Comptant Marché Local (FCFA)" if lang == "fr" else "Local Market Cash Selling Price (FCFA)",
+        min_value=20_000_000.0,
+        max_value=100_000_000.0,
+        value=46_000_000.0,
+        step=1_000_000.0,
+        format="%.0f",
+        help="Prix de vente d'un camion sur le marché local (fixé à 46 000 000 FCFA). Sert de prix plancher obligatoire pour toute vente comptant ou contrat de leasing."
+        if lang == "fr"
+        else "Local market selling price per truck (fixed at 46,000,000 FCFA). Serves as mandatory benchmark floor for all cash sales or lease contracts.",
+    )
+    sale_markup_pct = max(0.0, ((market_sale_price - truck_landed_cost) / truck_landed_cost) * 100.0)
+
     batch_size = st.selectbox(
         "Taille de Lot Acheté (Multiples de 5)" if lang == "fr" else "Batch Size (Multiples of 5)",
         options=[5, 10, 15, 20],
@@ -213,8 +228,12 @@ with st.sidebar:
         help="Pourcentage moyen de temps perdu pour pannes, maintenance ou intempéries.",
     )
 
-    with st.expander("🛠️ Paramètres Complémentaires (Vente & Réinvestissement)" if lang == "fr" else "🛠️ Additional Parameters", expanded=False):
-        sale_markup_pct = st.slider("Marge Brute Vente Comptant (%)", min_value=5.0, max_value=40.0, value=20.0, step=1.0)
+    with st.expander("🛠️ Paramètres Complémentaires (Réinvestissement & Trésorerie)" if lang == "fr" else "🛠️ Additional Parameters", expanded=False):
+        st.caption(
+            f"Marge brute vente comptant induite : **{sale_markup_pct:.1f}%** (+{format_fcfa(market_sale_price - truck_landed_cost)} / benne)"
+            if lang == "fr"
+            else f"Implied cash sale gross margin: **{sale_markup_pct:.1f}%** (+{format_fcfa(market_sale_price - truck_landed_cost)} / truck)"
+        )
         reinvest_toggle = st.checkbox(
             "Réinvestir automatiquement les excédents de trésorerie en nouveaux lots de 5 camions"
             if lang == "fr"
@@ -253,7 +272,7 @@ cash_sale_assumptions = CashSaleAssumptions(
 lease_assumptions = LeaseAssumptions(
     term_months=24,
     initial_deposit=12_000_000.0,
-    target_annual_return=0.25,
+    target_annual_return=financing_assumptions.annual_financing_rate,
 )
 
 protection_config = ProtectionCostConfig()
@@ -658,13 +677,37 @@ elif "2." in nav_page:
                     else f"💡 **Standard Deposit ({format_fcfa(client_deposit_in)}):** Recommended terms are 18 or 24 months to keep monthly installments affordable."
                 )
 
-    # Generate Client Lease Options
+    # Evaluate reference cash sale price (the baseline floor for any lease)
+    base_cash_price_ref = market_sale_price
+
+    # Educational banner explaining dynamic pricing logic
+    st.info(
+        f"💡 **Règle Fondamentale de Tarification Dynamique :**\n"
+        f"• **Prix de Vente Comptant de Référence (Marché Local) :** **{format_fcfa(base_cash_price_ref)}**.\n"
+        f"• **Taux d'Intérêt Annuel Fixé :** **{annual_rate_pct:.1f}% / an** ({annual_rate_pct/12.0:.2f}% / mois).\n"
+        f"• Tout client qui achète en crédit-bail retient du capital de l'entreprise et paie **obligatoirement plus cher** que le prix comptant.\n"
+        f"• **Acompte & Intérêts :** Moins le client donne d'acompte (ex: 10M vs 30M), plus il retient du capital et plus il paie d'intérêts financiers.\n"
+        f"• **Durée & Intérêts :** Plus la durée s'allonge (6 à 24 mois), plus les intérêts cumulés rémunèrent la durée d'immobilisation des fonds.\n"
+        f"• **Plafond 2 Ans :** Durée maximale de 24 mois (avec rejet des durées ≥ 18 mois pour les acomptes élevés ≥ 28M)."
+        if lang == "fr"
+        else f"💡 **Core Dynamic Pricing Rule:**\n"
+        f"• **Local Market Cash Sale Benchmark:** **{format_fcfa(base_cash_price_ref)}**.\n"
+        f"• **Fixed Annual Financing Rate:** **{annual_rate_pct:.1f}% / yr** ({annual_rate_pct/12.0:.2f}% / month).\n"
+        f"• Any client acquiring via lease ties up company capital and strictly pays more than the cash price.\n"
+        f"• **Deposit & Interest:** A smaller deposit (10M vs 30M) holds more company funds and pays higher financing interest.\n"
+        f"• **Term & Interest:** Longer durations accumulate higher total interest.\n"
+        f"• **2-Year Maximum:** Strictly capped at 24 months (with 18m/24m excluded for deposits ≥ 28M)."
+    )
+
+    # Generate Client Lease Options with dynamic pricing
     lease_options = generate_client_lease_options(
         truck_cost=truck_landed_cost,
         initial_deposit=client_deposit_in,
-        upfront_protection_costs=2_000_000.0,
-        monthly_costs=15_000.0,
-        target_annual_return=0.25,
+        base_cash_price=base_cash_price_ref,
+        upfront_protection_costs=0.0,
+        monthly_costs=0.0,
+        target_annual_return=financing_assumptions.annual_financing_rate,
+        commercial_markup=sale_markup_pct / 100.0,
         discount_rate=financing_assumptions.annual_financing_rate,
     )
 
@@ -696,9 +739,11 @@ elif "2." in nav_page:
                     )
                     st.write(f"• **Acompte le 1er jour :** {format_fcfa(opt.initial_deposit)}")
                     st.write(f"• **Reliquat financé :** {format_fcfa(opt.financed_balance)}")
+                    st.write(f"• **Intérêts financiers :** **+{format_fcfa(opt.total_interest_paid)}**")
                     st.write(f"• **Prix total client :** **{format_fcfa(opt.total_contract_price)}**")
                     st.markdown("---")
                     st.write(f"💰 **Bénéfice Net Entreprise :** **{format_fcfa(opt.company_net_profit)}**")
+                    st.caption(f"(Marge base + Intérêts crédit)")
                     st.write(f"⏳ **Camion amorti en :** **{opt.payback_month} mois**")
                 else:
                     st.metric("Mensualité" if lang == "fr" else "Monthly Payment", "—")
@@ -731,11 +776,12 @@ Date d'émission : 2026
 1. CONDITIONS FINANCIÈRES :
    -------------------------------------------------------------------------------------
    • Désignation du véhicule        : Camion Benne 20m³ (Neuf / Rendu Port)
-   • Valeur de base du véhicule     : {format_fcfa(truck_landed_cost)}
+   • Prix Normal au Comptant        : {format_fcfa(chosen_opt.base_cash_price)}
    • APPORT INITIAL CLIENT (ACOMPTE): {format_fcfa(chosen_opt.initial_deposit)} (Payable à la commande)
    • Solde restant financé          : {format_fcfa(chosen_opt.financed_balance)}
    • Durée du contrat               : {chosen_opt.term_months} MOIS (Strictement <= 2 ans)
    • MENSUALITÉ FIXE DU CLIENT      : {format_fcfa(chosen_opt.monthly_installment)} / MOIS
+   • Intérêts de Financement Inclus : +{format_fcfa(chosen_opt.total_interest_paid)}
    • PRIX TOTAL FACTURÉ AU CLIENT   : {format_fcfa(chosen_opt.total_contract_price)}
 
 2. CONDITIONS GÉNÉRALES & SÉCURITÉ :
@@ -747,9 +793,11 @@ Date d'émission : 2026
 
 3. BILAN FINANCIER POUR LA SOCIÉTÉ BAILLERESSE :
    -------------------------------------------------------------------------------------
-   • Marge brute dégagée            : {format_fcfa(chosen_opt.company_net_profit)}
+   • Marge brute totale dégagée     : {format_fcfa(chosen_opt.company_net_profit)}
+     (inclut la marge commerciale de base et les intérêts sur le capital avancé)
    • Horizon de remboursement       : {chosen_opt.payback_month} mois
-========================================================================================"""
+========================================================================================
+"""
         st.code(proposal_text, language="text")
 
         st.download_button(

@@ -73,10 +73,10 @@ class StrategyRecommendation:
 
 def compare_strategies(
     landed_cost: float = 40_000_000.0,
-    annual_financing_rate: float = 0.20,
+    annual_financing_rate: float = 0.15,
     horizon_months: int = 36,
     # Strategy A parameters
-    cash_sale_price: float = 48_000_000.0,
+    cash_sale_price: float = 46_000_000.0,
     holding_period_sale: int = 1,
     # Strategy B parameters
     lease_term: int = 24,
