@@ -32,6 +32,23 @@ from simulator.models import (
     AmortizationSchedule,
 )
 
+from simulator.loan import (
+    calculate_monthly_payment,
+    generate_amortization_schedule,
+    generate_loan_schedule_from_assumptions,
+    schedule_to_dataframe,
+)
+
+from simulator.acquisition import (
+    LANDED_COST_PRESETS,
+    DEFAULT_BATCH_STEP,
+    BatchProcurementEvaluation,
+    calculate_purchasable_trucks,
+    evaluate_batch_procurement,
+    evaluate_procurement_from_assumptions,
+    find_earliest_affordable_month,
+)
+
 __all__ = [
     "SimulatorValidationError",
     "round_currency",
@@ -57,4 +74,17 @@ __all__ = [
     "TaxConfig",
     "AmortizationRow",
     "AmortizationSchedule",
+    "calculate_monthly_payment",
+    "generate_amortization_schedule",
+    "generate_loan_schedule_from_assumptions",
+    "schedule_to_dataframe",
+    "LANDED_COST_PRESETS",
+    "DEFAULT_BATCH_STEP",
+    "BatchProcurementEvaluation",
+    "calculate_purchasable_trucks",
+    "evaluate_batch_procurement",
+    "evaluate_procurement_from_assumptions",
+    "find_earliest_affordable_month",
 ]
+
+
